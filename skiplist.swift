@@ -1,82 +1,3 @@
-struct UnsafeVector<Element>:CustomStringConvertible
-{
-    private
-    var buffer = UnsafeMutableBufferPointer<Element>(start: nil, count: 0)
-
-    var count:Int = 0
-    var capacity:Int
-    {
-        return self.buffer.count
-    }
-
-    subscript(index:Int) -> Element
-    {
-        get
-        {
-            return self.buffer[index]
-        }
-        set(v)
-        {
-            self.buffer[index] = v
-        }
-    }
-
-    var description:String
-    {
-        return "[\(self.buffer[0 ..< self.count].map(String.init(describing:)).joined(separator: ", "))]"
-    }
-
-    func deinitialize()
-    {
-        self.buffer.baseAddress?.deinitialize(count: self.count)
-        self.buffer.baseAddress?.deallocate(capacity: self.capacity)
-    }
-
-    mutating
-    func reserve_capacity(_ capacity:Int)
-    {
-        let new_capacity:Int = max(capacity, self.count)
-
-        let new_buffer = UnsafeMutablePointer<Element>.allocate(capacity: new_capacity)
-        if let old_buffer:UnsafeMutablePointer<Element> = self.buffer.baseAddress
-        {
-            new_buffer.moveInitialize(from: old_buffer, count: self.count)
-            //print("deallocate", self.capacity)
-            old_buffer.deallocate(capacity: self.capacity)
-        }
-
-        self.buffer = UnsafeMutableBufferPointer<Element>(start: new_buffer, count: new_capacity)
-    }
-
-    mutating
-    func allocating_push(_ element:Element)
-    {
-        if self.count >= self.capacity
-        {
-            // guaranteed to lengthen the buffer by at least 8
-            self.reserve_capacity(self.capacity << 1 - self.capacity >> 1 + 8)
-        }
-        assert(self.capacity > self.count)
-
-        (self.buffer.baseAddress! + self.count).initialize(to: element, count: 1)
-        self.count += 1
-    }
-
-    @discardableResult
-    mutating
-    func pop() -> Element?
-    {
-        guard self.count > 0
-        else
-        {
-            return nil
-        }
-
-        self.count -= 1
-        return (self.buffer.baseAddress! + self.count).move()
-    }
-}
-
 struct UnmanagedBuffer<Header, Element>:Equatable
 {
     // just like roundUp(_:toAlignment) in stdlib/public/core/BuiltIn.swift
@@ -183,16 +104,26 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         return a.core == b.core
     }
 }
+extension UnmanagedBuffer:CustomStringConvertible
+{
+    var description:String
+    {
+        return String(describing: self.core)
+    }
+}
 
 struct UnsafeConicalList<Element> where Element:Comparable
 {
+    private
+    typealias NodePointer = UnmanagedBuffer<Element, Link>
+
     private // *must* be a trivial type
     struct Link
     {
         // yes, the Element is the Header, and the Link is the Element.
         // it’s confusing.
-        var prev:UnmanagedBuffer<Element, Link>?,
-            next:UnmanagedBuffer<Element, Link>?
+        var prev:NodePointer,
+            next:NodePointer
     }
 
     private
@@ -203,7 +134,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
             capacity:Int
 
         private(set) // don’t bother with the header, we never touch it
-        var storage:UnmanagedBuffer<Element, Link>
+        var storage:NodePointer
 
         subscript(index:Int) -> Link
         {
@@ -218,7 +149,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
         }
 
         private
-        init(storage:UnmanagedBuffer<Element, Link>, capacity:Int)
+        init(storage:NodePointer, capacity:Int)
         {
             self.storage  = storage
             self.capacity = capacity
@@ -227,38 +158,49 @@ struct UnsafeConicalList<Element> where Element:Comparable
         static
         func create(capacity:Int = 0) -> HeadVector
         {
-            let storage = UnmanagedBuffer<Element, Link>.allocate(capacity: capacity)
+            let storage = NodePointer.allocate(capacity: capacity)
             return HeadVector(storage: storage, capacity: capacity)
+        }
+
+        func deinitialize()
+        {
+            self.storage.deallocate()
         }
 
         private mutating
         func extend_storage()
         {
             self.capacity = self.capacity << 1 - self.capacity >> 1 + 8
-            let new_storage = UnmanagedBuffer<Element, Link>.allocate(capacity: self.capacity)
+            let new_storage = NodePointer.allocate(capacity: self.capacity)
             new_storage.move_initialize_elements(from: self.storage, count: self.count)
             self.storage.deallocate()
             self.storage = new_storage
         }
 
         mutating
-        func resize(to height:Int, repeating repeated:Link)
+        func grow(to height:Int, linking new:inout NodePointer)
         {
-            let old_capacity:Int = self.capacity
             if height > self.capacity
             {
                 // storage will increase by at least 8
                 self.extend_storage()
             }
             assert(height <= self.capacity)
+            assert(height > self.count)
 
-            if height > self.count
+            let link:Link = Link(prev: new, next: new)
+            for level in self.count ..< height
             {
-                for level in self.count ..< height
-                {
-                    self.storage[level] = repeated
-                }
+                new[level]          = link
+                self.storage[level] = link
             }
+            self.count = height
+        }
+
+        mutating
+        func shrink(to height:Int)
+        {
+            assert(height < self.count)
             self.count = height
         }
     }
@@ -276,88 +218,77 @@ struct UnsafeConicalList<Element> where Element:Comparable
     static
     func create() -> UnsafeConicalList<Element>
     {
-        var head_vector:HeadVector = HeadVector.create(capacity: 8)
-        head_vector.resize(to: 1, repeating: Link(prev: nil, next: nil))
+        let head_vector:HeadVector = HeadVector.create(capacity: 8)
         return UnsafeConicalList<Element>(head_vector: head_vector)
     }
 
-    /*
-    func find(_ value:Element) -> UnsafePointer<Node<Element>>?
+    func deinitialize()
     {
-        var level:Int = self.top_level
-        var current_tower:Vector<UnsafePointer<Node<Element>>?> = self.head
-        while true
+        if self.head_vector.count > 0
         {
-            if let next:UnsafePointer<Node<Element>> = current_tower[level]
+            let head:NodePointer    = self.head_vector.storage
+            var current:NodePointer = head[0].next
+            repeat
             {
-                if next.pointee.value < value
-                {
-                    current_tower = next.pointee.tower
-                }
-                else if level == 0
-                {
-                    return next
-                }
-                else
-                {
-                    level -= 1
-                }
-            }
-            else if level == 0
-            {
-                return nil
-            }
-            else
-            {
-                level -= 1
-            }
-        }
-    }
-    */
-
-    /*
-    @inline(__always)
-    func will_overshoot(value:Element, from_tower tower:Vector<UnsafePointer<Node<Element>>?>, level:Int) -> Bool
-    {
-        guard let next:UnsafePointer<Node<Element>> = tower[level]
-        else
-        {
-            return true
+                let old:NodePointer = current
+                current = current[0].next
+                old.deinitialize_header()
+                old.deallocate()
+            } while current != head[0].next
         }
 
-        return next.pointee.value > value
+        self.head_vector.deinitialize()
     }
-    */
-    private mutating
+
+    mutating
     func insert(_ element:Element, height:Int)
     {
-        typealias NodePointer = UnmanagedBuffer<Element, Link>
-
-        if height > self.head_vector.count
-        {
-            self.head_vector.resize(to: height, repeating: Link(prev: nil, next: nil))
-        }
-
-        let head:NodePointer    = self.head_vector.storage
-        var current:NodePointer = head,
-            new:NodePointer     = NodePointer.allocate(capacity: height),
-            level:Int           = self.head_vector.count - 1
-
+        var new:NodePointer = NodePointer.allocate(capacity: height),
+            level:Int       = self.head_vector.count
         new.initialize_header(to: element)
+
+        if height > level
+        {
+            self.head_vector.grow(to: height, linking: &new)
+
+            // height will always be > 0, so if level <= 0, then height > level
+            guard level > 0
+            else
+            {
+                return
+            }
+        }
+        level -= 1
+        // from here on out, all of our linked lists contain at least one node
+
+        var head:NodePointer    = self.head_vector.storage,
+            current:NodePointer = head
         while true
         {
-            if let  next:NodePointer = current[level].next,
-                    next.header < element,
-                    next != head[level].next || current == head
-                    // account for the discontinuity to prevent infinite traversal
+            if  current[level].next.header < element,
+                current[level].next != head[level].next || current == head
+                // account for the discontinuity to prevent infinite traversal
             {
-                current = next
+                current = current[level].next
                 continue
             }
             else if level < height
             {
-                new[level].next = current[level].next ?? head[level].next ?? new
-                current[level].next = new
+                new[level].next             = current[level].next
+                if current == head
+                {
+                    new[level].prev             = current[level].next[level].prev
+                    new[level].prev[level].next = new
+                    new[level].next[level].prev = new
+
+                    head[level].prev            = new
+                }
+                else
+                {
+                    new[level].prev             = current
+                    new[level].next[level].prev = new
+                }
+                current[level].next         = new
 
                 // height will always be > 0, so if level == 0 then level < height
                 if level == 0
@@ -369,7 +300,32 @@ struct UnsafeConicalList<Element> where Element:Comparable
             level -= 1
         }
     }
+}
+extension UnsafeConicalList:CustomStringConvertible
+{
+    var description:String
+    {
+        var output:String = ""
+        for level in (0 ..< self.head_vector.count).reversed()
+        {
+            let head:NodePointer    = self.head_vector.storage
+            output += "[\(head[level].prev.header) ← HEAD → \(head[level].next.header)]"
 
+            var current:NodePointer = head[level].next
+            repeat
+            {
+                output += " (\(current[level].prev.header) ← \(current.header) → \(current[level].next.header))"
+                current = current[level].next
+            } while current != head[level].next
+
+            if level > 0
+            {
+                output += "\n"
+            }
+        }
+
+        return output
+    }
 }
 
 class _TestHeader
@@ -387,7 +343,7 @@ class _TestHeader
     }
 }
 
-class _TestElement
+class _TestElement:Comparable
 {
     let value:Int
 
@@ -400,7 +356,43 @@ class _TestElement
     {
         print("deinitialized _TestElement(\(self.value))")
     }
+
+    static
+    func == (a:_TestElement, b:_TestElement) -> Bool
+    {
+        return a.value == b.value
+    }
+
+    static
+    func < (a:_TestElement, b:_TestElement) -> Bool
+    {
+        return a.value < b.value
+    }
 }
+extension _TestElement:CustomStringConvertible
+{
+    var description:String
+    {
+        return String(self.value)
+    }
+}
+
+var cl = UnsafeConicalList<Int>.create()
+for (v, h) in zip([7, 5, 6, 1, 9, 16, 33, 7, -3, 0], [4, 1, 2, 1, 4, 2, 1, 3, 1, 2])
+{
+
+    cl.insert(v, height: h)
+}
+print(cl)
+/*
+
+var cl = UnsafeConicalList<_TestElement>.create()
+for (v, h) in zip([7, 5, 6, 1, 9].map(_TestElement.init(value:)), [4, 1, 2, 3, 2])
+{
+    print(cl)
+    cl.insert(v, height: h)
+}
+*/
 
 /*
 var umb = UnmanagedBuffer<_TestHeader, _TestElement>.allocate(capacity: 5)
