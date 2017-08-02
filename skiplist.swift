@@ -3,7 +3,7 @@ struct UnmanagedBuffer<Header, Element>:Equatable
     // just like roundUp(_:toAlignment) in stdlib/public/core/BuiltIn.swift
     @inline(__always)
     private static
-    func round_up(_ offset: UInt, to_alignment alignment: Int) -> UInt
+    func round_up(_ offset:UInt, to_alignment alignment:Int) -> UInt
     {
         let x = offset + UInt(bitPattern: alignment) &- 1
         return x & ~(UInt(bitPattern: alignment) &- 1)
@@ -25,6 +25,11 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         let raw_ptr = UnsafeMutableRawPointer(mutating: self.core) +
                       UnmanagedBuffer<Header, Element>.buffer_offset
         return raw_ptr.assumingMemoryBound(to: Element.self)
+    }
+
+    var base:UnsafePointer<Header>
+    {
+        return UnsafePointer<Header>(self.core)
     }
 
     var header:Header
@@ -52,6 +57,7 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         }
     }
 
+    private
     init(core:UnsafeMutablePointer<Header>)
     {
         self.core = core
@@ -94,8 +100,7 @@ struct UnmanagedBuffer<Header, Element>:Equatable
 
     func deallocate()
     {
-        // free the entire block
-        self.core.deallocate(capacity: -1)
+        self.core.deallocate(capacity: -1) // free the entire block
     }
 
     static
@@ -133,7 +138,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
         var count:Int = 0,
             capacity:Int
 
-        private(set) // don’t bother with the header, we never touch it
+        private(set)
         var storage:NodePointer
 
         subscript(index:Int) -> Link
@@ -158,8 +163,10 @@ struct UnsafeConicalList<Element> where Element:Comparable
         static
         func create(capacity:Int = 0) -> HeadVector
         {
-            let storage = NodePointer.allocate(capacity: capacity)
-            return HeadVector(storage: storage, capacity: capacity)
+            // we don’t bother initializing or deinitializing the header;
+            // we never use it anyway
+            return HeadVector(  storage: NodePointer.allocate(capacity: capacity),
+                                capacity: capacity)
         }
 
         func deinitialize()
@@ -170,11 +177,11 @@ struct UnsafeConicalList<Element> where Element:Comparable
         private mutating
         func extend_storage()
         {
-            self.capacity = self.capacity << 1 - self.capacity >> 1 + 8
+            self.capacity   = self.capacity << 1 - self.capacity >> 1 + 8
             let new_storage = NodePointer.allocate(capacity: self.capacity)
-            new_storage.move_initialize_elements(from: self.storage, count: self.count)
+                new_storage.move_initialize_elements(from: self.storage, count: self.count)
             self.storage.deallocate()
-            self.storage = new_storage
+            self.storage    = new_storage
         }
 
         mutating
@@ -186,7 +193,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
                 self.extend_storage()
             }
             assert(height <= self.capacity)
-            assert(height > self.count)
+            assert(height >  self.count)
 
             let link:Link = Link(prev: new, next: new)
             for level in self.count ..< height
@@ -205,9 +212,29 @@ struct UnsafeConicalList<Element> where Element:Comparable
         }
     }
 
-    // head is an unstable buffer. *never* store a pointer to it
     private
-    var head_vector:HeadVector
+    struct RandomNumberGenerator
+    {
+        private
+        var state:UInt64
+
+        init(seed:Int)
+        {
+            self.state = UInt64(extendingOrTruncating: seed)
+        }
+
+        mutating
+        func generate() -> UInt64
+        {
+            self.state = self.state &* 2862933555777941757 + 3037000493
+            return self.state
+        }
+    }
+
+    // head_vector is an unstable buffer. *never* store a pointer to it
+    private
+    var random:RandomNumberGenerator = RandomNumberGenerator(seed: 24),
+        head_vector:HeadVector
 
     private
     init(head_vector:HeadVector)
@@ -240,12 +267,19 @@ struct UnsafeConicalList<Element> where Element:Comparable
         self.head_vector.deinitialize()
     }
 
+    @discardableResult
     mutating
-    func insert(_ element:Element, height:Int)
+    func insert(_ element:Element) -> UnsafePointer<Element>
     {
-        var new:NodePointer = NodePointer.allocate(capacity: height),
-            level:Int       = self.head_vector.count
-        new.initialize_header(to: element)
+        return self.insert(element, height: self.random.generate().trailingZeroBitCount + 1).base
+    }
+
+    private mutating
+    func insert(_ element:Element, height:Int) -> NodePointer
+    {
+        var level:Int       = self.head_vector.count,
+            new:NodePointer = NodePointer.allocate(capacity: height)
+            new.initialize_header(to: element)
 
         if height > level
         {
@@ -255,7 +289,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
             guard level > 0
             else
             {
-                return
+                return new
             }
         }
         level -= 1
@@ -277,18 +311,19 @@ struct UnsafeConicalList<Element> where Element:Comparable
                 new[level].next             = current[level].next
                 if current == head
                 {
-                    new[level].prev             = current[level].next[level].prev
+                    new[level].prev             = head[level].next[level].prev
                     new[level].prev[level].next = new
                     new[level].next[level].prev = new
 
                     head[level].prev            = new
+                    head[level].next            = new
                 }
                 else
                 {
                     new[level].prev             = current
                     new[level].next[level].prev = new
+                    current[level].next         = new
                 }
-                current[level].next         = new
 
                 // height will always be > 0, so if level == 0 then level < height
                 if level == 0
@@ -299,6 +334,8 @@ struct UnsafeConicalList<Element> where Element:Comparable
 
             level -= 1
         }
+
+        return new
     }
 }
 extension UnsafeConicalList:CustomStringConvertible
@@ -343,6 +380,7 @@ class _TestHeader
     }
 }
 
+/*
 class _TestElement:Comparable
 {
     let value:Int
@@ -377,13 +415,70 @@ extension _TestElement:CustomStringConvertible
     }
 }
 
-var cl = UnsafeConicalList<Int>.create()
-for (v, h) in zip([7, 5, 6, 1, 9, 16, 33, 7, -3, 0], [4, 1, 2, 1, 4, 2, 1, 3, 1, 2])
+var cl:UnsafeConicalList = UnsafeConicalList<_TestElement>.create()
+for v in [7, 5, 6, 1, 9, 16, 33, 7, -3, 0].map(_TestElement.init(value:))
 {
-
-    cl.insert(v, height: h)
+    cl.insert(v)
 }
 print(cl)
+cl.deinitialize()
+*/
+
+// random insertion stress test
+import func Glibc.clock
+
+extension Array
+{
+    func insertionIndexOf(_ elem:Element, _ isOrderedBefore:(Element, Element) -> Bool) -> Int
+    {
+        var lo = 0
+        var hi = self.count - 1
+        while lo <= hi {
+            let mid = (lo + hi)/2
+            if isOrderedBefore(self[mid], elem) {
+                lo = mid + 1
+            } else if isOrderedBefore(elem, self[mid]) {
+                hi = mid - 1
+            } else {
+                return mid // found at position mid
+            }
+        }
+        return lo // not found, would be inserted at position lo
+    }
+}
+
+do
+{
+    for n in (1 ... 100).map({ 100 * $0 })
+    {
+        let time1:Int = clock()
+
+        var state:UInt64 = 13,
+            skiplist:UnsafeConicalList<UInt64> = UnsafeConicalList<UInt64>.create(),
+            handle:UnsafePointer<UInt64> = UnsafePointer(bitPattern: -1)!
+        for _ in 0 ..< n
+        {
+            state = state &* 2862933555777941757 + 3037000493
+            handle = skiplist.insert(state >> 32)
+        }
+        print(clock() - time1, terminator: " ")
+        print("(@ \(handle) → \(handle.pointee))", terminator: " ")
+        skiplist.deinitialize()
+
+        let time2:Int = clock()
+        state = 13
+        var array:[UInt64] = []
+        for _ in 0 ..< n
+        {
+            state = state &* 2862933555777941757 + 3037000493
+            array.insert(state >> 32, at: array.insertionIndexOf(state >> 32, <))
+        }
+        print(clock() - time2, terminator: " ")
+        print("[n = \(n)]")
+    }
+}
+
+
 /*
 
 var cl = UnsafeConicalList<_TestElement>.create()
