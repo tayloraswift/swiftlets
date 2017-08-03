@@ -84,6 +84,10 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         self.buffer.initialize(from: buffer, count: count)
     }
 
+    func move_initialize_header(from unmanaged:UnmanagedBuffer<Header, Element>)
+    {
+        self.core.moveInitialize(from: unmanaged.core, count: 1)
+    }
     func move_initialize_elements(from unmanaged:UnmanagedBuffer<Header, Element>, count:Int)
     {
         self.buffer.moveInitialize(from: unmanaged.buffer, count: count)
@@ -119,8 +123,24 @@ extension UnmanagedBuffer:CustomStringConvertible
 
 struct UnsafeConicalList<Element> where Element:Comparable
 {
+    struct Node
+    {
+        let value:Element
+
+        fileprivate
+        var height:Int
+
+        // hide initializer
+        fileprivate
+        init(value:Element, height:Int)
+        {
+            self.value  = value
+            self.height = height
+        }
+    }
+
     private
-    typealias NodePointer = UnmanagedBuffer<Element, Link>
+    typealias NodePointer = UnmanagedBuffer<Node, Link>
 
     private // *must* be a trivial type
     struct Link
@@ -135,11 +155,20 @@ struct UnsafeConicalList<Element> where Element:Comparable
     struct HeadVector
     {
         private(set)
-        var count:Int = 0,
+        var storage:NodePointer,
             capacity:Int
 
-        private(set)
-        var storage:NodePointer
+        var count:Int
+        {
+            get
+            {
+                return self.storage.header.height
+            }
+            set(v)
+            {
+                self.storage.header.height = v
+            }
+        }
 
         subscript(index:Int) -> Link
         {
@@ -163,10 +192,12 @@ struct UnsafeConicalList<Element> where Element:Comparable
         static
         func create(capacity:Int = 0) -> HeadVector
         {
-            // we don’t bother initializing or deinitializing the header;
-            // we never use it anyway
-            return HeadVector(  storage: NodePointer.allocate(capacity: capacity),
-                                capacity: capacity)
+            // we don’t bother initializing or deinitializing the header as it’s
+            // a value type, and we only want to set the height property anyway.
+            var vec:HeadVector = HeadVector(storage: NodePointer.allocate(capacity: capacity),
+                                            capacity: capacity)
+                vec.count      = 0
+            return vec
         }
 
         func deinitialize()
@@ -179,6 +210,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
         {
             self.capacity   = self.capacity << 1 - self.capacity >> 1 + 8
             let new_storage = NodePointer.allocate(capacity: self.capacity)
+                new_storage.move_initialize_header(from: self.storage)
                 new_storage.move_initialize_elements(from: self.storage, count: self.count)
             self.storage.deallocate()
             self.storage    = new_storage
@@ -269,7 +301,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
 
     @discardableResult
     mutating
-    func insert(_ element:Element) -> UnsafePointer<Element>
+    func insert(_ element:Element) -> UnsafePointer<Node>
     {
         return self.insert(element, height: self.random.generate().trailingZeroBitCount + 1).base
     }
@@ -279,7 +311,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
     {
         var level:Int       = self.head_vector.count,
             new:NodePointer = NodePointer.allocate(capacity: height)
-            new.initialize_header(to: element)
+            new.initialize_header(to: Node(value: element, height: height))
 
         if height > level
         {
@@ -299,7 +331,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
             current:NodePointer = head
         while true
         {
-            if  current[level].next.header < element,
+            if  current[level].next.header.value < element,
                 current[level].next != head[level].next || current == head
                 // account for the discontinuity to prevent infinite traversal
             {
@@ -336,6 +368,12 @@ struct UnsafeConicalList<Element> where Element:Comparable
         }
 
         return new
+    }
+
+    mutating
+    func delete(_ node:UnsafePointer<Node>)
+    {
+
     }
 }
 extension UnsafeConicalList:CustomStringConvertible
@@ -455,7 +493,7 @@ do
 
         var state:UInt64 = 13,
             skiplist:UnsafeConicalList<UInt64> = UnsafeConicalList<UInt64>.create(),
-            handle:UnsafePointer<UInt64> = UnsafePointer(bitPattern: -1)!
+            handle = UnsafePointer<UnsafeConicalList<UInt64>.Node>(bitPattern: -1)!
         for _ in 0 ..< n
         {
             state = state &* 2862933555777941757 + 3037000493
