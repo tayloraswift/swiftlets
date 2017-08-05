@@ -63,6 +63,12 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         self.core = core
     }
 
+    fileprivate
+    init(mutating core:UnsafePointer<Header>)
+    {
+        self.core = UnsafeMutablePointer(mutating: core)
+    }
+
     static
     func allocate(capacity:Int) -> UnmanagedBuffer<Header, Element>
     {
@@ -239,7 +245,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
         mutating
         func shrink(to height:Int)
         {
-            assert(height < self.count)
+            assert(height <= self.count)
             self.count = height
         }
     }
@@ -252,7 +258,7 @@ struct UnsafeConicalList<Element> where Element:Comparable
 
         init(seed:Int)
         {
-            self.state = UInt64(extendingOrTruncating: seed)
+            self.state = UInt64(truncatingIfNeeded: seed)
         }
 
         mutating
@@ -373,7 +379,32 @@ struct UnsafeConicalList<Element> where Element:Comparable
     mutating
     func delete(_ node:UnsafePointer<Node>)
     {
+        var current:NodePointer = NodePointer(mutating: node),
+            head:NodePointer    = self.head_vector.storage,
+            head_height:Int     = self.head_vector.count
 
+        for level in (0 ..< current.header.height).reversed()
+        {
+            if current[level].next == current
+            {
+                head_height = level
+            }
+            else
+            {
+                current[level].prev[level].next = current[level].next
+                current[level].next[level].prev = current[level].prev
+
+                if current == head[level].next
+                {
+                    head[level].next = current[level].next
+                    head[level].prev = current[level].next
+                }
+            }
+        }
+
+        self.head_vector.shrink(to: head_height)
+        current.deinitialize_header()
+        current.deallocate()
     }
 }
 extension UnsafeConicalList:CustomStringConvertible
@@ -453,16 +484,27 @@ extension _TestElement:CustomStringConvertible
     }
 }
 
-var cl:UnsafeConicalList = UnsafeConicalList<_TestElement>.create()
+var cl:UnsafeConicalList = UnsafeConicalList<_TestElement>.create(),
+    deletion_list:[UnsafePointer<UnsafeConicalList<_TestElement>.Node>] = []
+
 for v in [7, 5, 6, 1, 9, 16, 33, 7, -3, 0].map(_TestElement.init(value:))
 {
-    cl.insert(v)
+    deletion_list.append(cl.insert(v))
+}
+
+print(cl)
+print("deleting nodes...")
+
+for n in deletion_list
+{
+    cl.delete(n)
 }
 print(cl)
 cl.deinitialize()
 */
 
 // random insertion stress test
+/*
 import func Glibc.clock
 
 extension Array
@@ -514,16 +556,6 @@ do
         print(clock() - time2, terminator: " ")
         print("[n = \(n)]")
     }
-}
-
-
-/*
-
-var cl = UnsafeConicalList<_TestElement>.create()
-for (v, h) in zip([7, 5, 6, 1, 9].map(_TestElement.init(value:)), [4, 1, 2, 3, 2])
-{
-    print(cl)
-    cl.insert(v, height: h)
 }
 */
 
