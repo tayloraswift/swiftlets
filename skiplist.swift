@@ -1,3 +1,4 @@
+fileprivate
 struct UnmanagedBuffer<Header, Element>:Equatable
 {
     // just like roundUp(_:toAlignment) in stdlib/public/core/BuiltIn.swift
@@ -117,16 +118,14 @@ extension UnmanagedBuffer:CustomStringConvertible
     }
 }
 
-public
 struct UnsafeSkipList<Element> where Element:Comparable
 {
-    public
     struct Node
     {
-        public
         let value:Element
         var height:Int
 
+        fileprivate
         init(value:Element, height:Int)
         {
             self.value  = value
@@ -169,13 +168,12 @@ struct UnsafeSkipList<Element> where Element:Comparable
     var random:RandomNumberGenerator = RandomNumberGenerator(seed: 24),
         head:[Link]                  = []
 
-    public static
+    static
     func create() -> UnsafeSkipList<Element>
     {
         return UnsafeSkipList<Element>()
     }
 
-    public
     func destroy()
     {
         if self.head.count > 0
@@ -193,7 +191,7 @@ struct UnsafeSkipList<Element> where Element:Comparable
     }
 
     @discardableResult
-    public mutating
+    mutating
     func insert(_ element:Element) -> UnsafePointer<Node>
     {
         let height:Int      = self.random.generate().trailingZeroBitCount + 1
@@ -270,7 +268,7 @@ struct UnsafeSkipList<Element> where Element:Comparable
         return UnsafePointer(new.core)
     }
 
-    public mutating
+    mutating
     func delete(_ node:UnsafePointer<Node>)
     {
         var current:NodePointer  = NodePointer(mutating: node),
@@ -302,7 +300,6 @@ struct UnsafeSkipList<Element> where Element:Comparable
 }
 extension UnsafeSkipList:CustomStringConvertible
 {
-    public
     var description:String
     {
         var output:String = ""
