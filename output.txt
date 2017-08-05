@@ -1,0 +1,17 @@
+[Node(value: 7, height: 5) ← HEAD → Node(value: 7, height: 5)] (Node(value: 7, height: 5) ← Node(value: 7, height: 5) → Node(value: 7, height: 5))
+[Node(value: 7, height: 5) ← HEAD → Node(value: 7, height: 5)] (Node(value: 7, height: 5) ← Node(value: 7, height: 5) → Node(value: 7, height: 5))
+[Node(value: 1, height: 3) ← HEAD → Node(value: 1, height: 3)] (Node(value: 7, height: 5) ← Node(value: 1, height: 3) → Node(value: 7, height: 5)) (Node(value: 1, height: 3) ← Node(value: 7, height: 5) → Node(value: 1, height: 3))
+[Node(value: 0, height: 2) ← HEAD → Node(value: 0, height: 2)] (Node(value: 16, height: 2) ← Node(value: 0, height: 2) → Node(value: 1, height: 3)) (Node(value: 0, height: 2) ← Node(value: 1, height: 3) → Node(value: 5, height: 2)) (Node(value: 1, height: 3) ← Node(value: 5, height: 2) → Node(value: 7, height: 5)) (Node(value: 5, height: 2) ← Node(value: 7, height: 5) → Node(value: 16, height: 2)) (Node(value: 7, height: 5) ← Node(value: 16, height: 2) → Node(value: 0, height: 2))
+[Node(value: -3, height: 1) ← HEAD → Node(value: -3, height: 1)] (Node(value: 33, height: 1) ← Node(value: -3, height: 1) → Node(value: 0, height: 2)) (Node(value: -3, height: 1) ← Node(value: 0, height: 2) → Node(value: 1, height: 3)) (Node(value: 0, height: 2) ← Node(value: 1, height: 3) → Node(value: 5, height: 2)) (Node(value: 1, height: 3) ← Node(value: 5, height: 2) → Node(value: 6, height: 1)) (Node(value: 5, height: 2) ← Node(value: 6, height: 1) → Node(value: 7, height: 5)) (Node(value: 6, height: 1) ← Node(value: 7, height: 5) → Node(value: 7, height: 1)) (Node(value: 7, height: 5) ← Node(value: 7, height: 1) → Node(value: 9, height: 1)) (Node(value: 7, height: 1) ← Node(value: 9, height: 1) → Node(value: 16, height: 2)) (Node(value: 9, height: 1) ← Node(value: 16, height: 2) → Node(value: 33, height: 1)) (Node(value: 16, height: 2) ← Node(value: 33, height: 1) → Node(value: -3, height: 1))
+deleting nodes...
+deinitialized _TestElement(7)
+deinitialized _TestElement(5)
+deinitialized _TestElement(6)
+deinitialized _TestElement(1)
+deinitialized _TestElement(9)
+deinitialized _TestElement(16)
+deinitialized _TestElement(33)
+deinitialized _TestElement(7)
+deinitialized _TestElement(-3)
+deinitialized _TestElement(0)
+

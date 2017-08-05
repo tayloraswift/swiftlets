@@ -16,21 +16,7 @@ struct UnmanagedBuffer<Header, Element>:Equatable
                                                         to_alignment: MemoryLayout<Element>.alignment))
     }
 
-    private
     let core:UnsafeMutablePointer<Header>
-
-    private
-    var buffer:UnsafeMutablePointer<Element>
-    {
-        let raw_ptr = UnsafeMutableRawPointer(mutating: self.core) +
-                      UnmanagedBuffer<Header, Element>.buffer_offset
-        return raw_ptr.assumingMemoryBound(to: Element.self)
-    }
-
-    var base:UnsafePointer<Header>
-    {
-        return UnsafePointer<Header>(self.core)
-    }
 
     var header:Header
     {
@@ -44,6 +30,13 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         }
     }
 
+    var buffer:UnsafeMutablePointer<Element>
+    {
+        let raw_ptr = UnsafeMutableRawPointer(mutating: self.core) +
+                      UnmanagedBuffer<Header, Element>.buffer_offset
+        return raw_ptr.assumingMemoryBound(to: Element.self)
+    }
+
     subscript(index:Int) -> Element
     {
         get
@@ -52,7 +45,6 @@ struct UnmanagedBuffer<Header, Element>:Equatable
         }
         set(v)
         {
-            // do not use storeBytes because it only works on trivial types
             self.buffer[index] = v
         }
     }
@@ -155,93 +147,6 @@ struct UnsafeSkipList<Element> where Element:Comparable
     }
 
     private
-    struct HeadVector
-    {
-        private(set)
-        var storage:NodePointer
-
-        private
-        var capacity:Int
-
-        private(set)
-        var count:Int
-        {
-            get
-            {
-                return self.storage.header.height
-            }
-            set(v)
-            {
-                self.storage.header.height = v
-            }
-        }
-
-        private
-        init(storage:NodePointer, capacity:Int)
-        {
-            self.storage  = storage
-            self.capacity = capacity
-        }
-
-        static
-        func create(capacity:Int = 0) -> HeadVector
-        {
-            // we don’t bother initializing or deinitializing the header as it’s
-            // a value type, and we only want to set the height property anyway.
-            var vec:HeadVector = HeadVector(storage: NodePointer.allocate(capacity: capacity),
-                                            capacity: capacity)
-                vec.count      = 0
-            return vec
-        }
-
-        func destroy()
-        {
-            // don’t deinitialize the header because it was never initialized
-            self.storage.deallocate()
-        }
-
-        private mutating
-        func extend_storage()
-        {
-            self.capacity   = self.capacity << 1 - self.capacity >> 1 + 8
-            var new_storage = NodePointer.allocate(capacity: self.capacity)
-                // move_initialize_header(from:) is not good enough here because
-                // Element may not be bitwise moveable
-                new_storage.header.height = self.storage.header.height
-                new_storage.move_initialize_elements(from: self.storage, count: self.count)
-            self.storage.deallocate()
-            self.storage    = new_storage
-        }
-
-        mutating
-        func grow(to height:Int, linking new:inout NodePointer)
-        {
-            if height > self.capacity
-            {
-                // storage will increase by at least 8
-                self.extend_storage()
-            }
-            assert(height <= self.capacity)
-            assert(height >  self.count)
-
-            let link:Link = Link(prev: new, next: new)
-            for level in self.count ..< height
-            {
-                new[level]          = link
-                self.storage[level] = link
-            }
-            self.count = height
-        }
-
-        mutating
-        func shrink(to height:Int)
-        {
-            assert(height <= self.count)
-            self.count = height
-        }
-    }
-
-    private
     struct RandomNumberGenerator
     {
         private
@@ -260,135 +165,137 @@ struct UnsafeSkipList<Element> where Element:Comparable
         }
     }
 
-    // head_vector is an unstable buffer. *never* store a pointer to it
     private
     var random:RandomNumberGenerator = RandomNumberGenerator(seed: 24),
-        head_vector:HeadVector
+        head:[Link]                  = []
 
-    private
-    init(head_vector:HeadVector)
-    {
-        self.head_vector = head_vector
-    }
-
-    static
+    public static
     func create() -> UnsafeSkipList<Element>
     {
-        return UnsafeSkipList<Element>(head_vector: HeadVector.create(capacity: 0))
+        return UnsafeSkipList<Element>()
     }
 
+    public
     func destroy()
     {
-        if self.head_vector.count > 0
+        if self.head.count > 0
         {
-            let head:NodePointer    = self.head_vector.storage
-            var current:NodePointer = head[0].next
+            let first:NodePointer   = self.head[0].next
+            var current:NodePointer = first
             repeat
             {
                 let old:NodePointer = current
                 current = current[0].next
                 old.deinitialize_header()
                 old.deallocate()
-            } while current != head[0].next
+            } while current != first
         }
-
-        self.head_vector.destroy()
     }
 
     @discardableResult
-    mutating
+    public mutating
     func insert(_ element:Element) -> UnsafePointer<Node>
     {
         let height:Int      = self.random.generate().trailingZeroBitCount + 1
-        var level:Int       = self.head_vector.count,
+        var level:Int       = self.head.count,
             new:NodePointer = NodePointer.allocate(capacity: height)
+
             new.initialize_header(to: Node(value: element, height: height))
 
         if height > level
         {
-            self.head_vector.grow(to: height, linking: &new)
+            let link:Link      = Link(prev: new, next: new),
+                new_levels:Int = height - level
+            (new.buffer + level).initialize       (to: link, count: new_levels)
+            self.head.append(contentsOf: repeatElement(link, count: new_levels))
 
             // height will always be > 0, so if level <= 0, then height > level
             guard level > 0
             else
             {
-                return new.base
+                return UnsafePointer(new.core)
             }
         }
 
         level -= 1
         // from here on out, all of our linked lists contain at least one node
 
-        var head:NodePointer    = self.head_vector.storage,
-            current:NodePointer = head
-        while true
+        self.head.withUnsafeMutableBufferPointer
         {
-            if  current[level].next.header.value < element,
-                current[level].next != head[level].next || current == head
-                // account for the discontinuity to prevent infinite traversal
+            let head_tower:UnsafeMutablePointer<Link>    = $0.baseAddress!
+            var current_tower:UnsafeMutablePointer<Link> = head_tower,
+                current:NodePointer?                     = nil
+
+            while true
             {
-                current = current[level].next
-                continue
+                if  current_tower[level].next.header.value < element,
+                    current_tower[level].next != head_tower[level].next ||
+                                current_tower == head_tower
+                    // account for the discontinuity to prevent infinite traversal
+                {
+                    current         = current_tower[level].next
+                    current_tower   = current_tower[level].next.buffer
+                    continue
+                }
+                else if level < height
+                {
+                    new[level].next                 = current_tower[level].next
+                    if let current:NodePointer = current
+                    {
+                        new[level].prev             = current
+                        new[level].next[level].prev = new
+                        current_tower[level].next   = new
+                    }
+                    else
+                    {
+                        new[level].prev             = head_tower[level].next[level].prev
+                        new[level].prev[level].next = new
+                        new[level].next[level].prev = new
+
+                        head_tower[level].prev      = new
+                        head_tower[level].next      = new
+                    }
+
+                    // height will always be > 0, so if level == 0 then level < height
+                    if level == 0
+                    {
+                        break
+                    }
+                }
+
+                level -= 1
             }
-            else if level < height
-            {
-                new[level].next             = current[level].next
-                if current == head
-                {
-                    new[level].prev             = head[level].next[level].prev
-                    new[level].prev[level].next = new
-                    new[level].next[level].prev = new
-
-                    head[level].prev            = new
-                    head[level].next            = new
-                }
-                else
-                {
-                    new[level].prev             = current
-                    new[level].next[level].prev = new
-                    current[level].next         = new
-                }
-
-                // height will always be > 0, so if level == 0 then level < height
-                if level == 0
-                {
-                    break
-                }
-            }
-
-            level -= 1
         }
 
-        return new.base
+        return UnsafePointer(new.core)
     }
 
-    mutating
+    public mutating
     func delete(_ node:UnsafePointer<Node>)
     {
-        var current:NodePointer = NodePointer(mutating: node),
-            head:NodePointer    = self.head_vector.storage,
-            head_height:Int     = self.head_vector.count
+        var current:NodePointer  = NodePointer(mutating: node),
+            levels_to_delete:Int = 0
 
         for level in (0 ..< current.header.height).reversed()
         {
             if current[level].next == current
             {
-                head_height = level
+                levels_to_delete += 1
             }
             else
             {
                 current[level].prev[level].next = current[level].next
                 current[level].next[level].prev = current[level].prev
 
-                if current == head[level].next
+                if current == self.head[level].next
                 {
-                    head[level].next = current[level].next
-                    head[level].prev = current[level].next
+                    self.head[level].next = current[level].next
+                    self.head[level].prev = current[level].next
                 }
             }
         }
 
-        self.head_vector.shrink(to: head_height)
+        self.head.removeLast(levels_to_delete)
         current.deinitialize_header()
         current.deallocate()
     }
@@ -399,17 +306,16 @@ extension UnsafeSkipList:CustomStringConvertible
     var description:String
     {
         var output:String = ""
-        for level in (0 ..< self.head_vector.count).reversed()
+        for level in (0 ..< self.head.count).reversed()
         {
-            let head:NodePointer    = self.head_vector.storage
-            output += "[\(head[level].prev.header) ← HEAD → \(head[level].next.header)]"
-
-            var current:NodePointer = head[level].next
+            output += "[\(self.head[level].prev.header) ← HEAD → \(self.head[level].next.header)]"
+            let first:NodePointer   = self.head[level].next
+            var current:NodePointer = first
             repeat
             {
                 output += " (\(current[level].prev.header) ← \(current.header) → \(current[level].next.header))"
                 current = current[level].next
-            } while current != head[level].next
+            } while current != first
 
             if level > 0
             {
@@ -492,6 +398,7 @@ cl.destroy()
 /*
 import func Glibc.clock
 
+// not mine, i stole this from stackoverflow
 extension Array
 {
     func insertionIndexOf(_ elem:Element, _ isOrderedBefore:(Element, Element) -> Bool) -> Int
@@ -528,7 +435,7 @@ do
         }
         print(clock() - time1, terminator: " ")
         print("(@ \(handle) → \(handle.pointee))", terminator: " ")
-        skiplist.deinitialize()
+        skiplist.destroy()
 
         let time2:Int = clock()
         state = 13
