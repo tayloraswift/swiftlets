@@ -54,9 +54,18 @@ struct BalancedTree<Element>
     private(set)
     var root:UnsafeMutablePointer<Node>? = nil
 
+    // frees the tree from memory
     func destroy()
     {
         BalancedTree.destroy(self.root)
+    }
+
+    // verifies that all paths in the red-black tree have the same black height,
+    // that all nodes satisfy the red property, and that the root is black
+    func verify() -> Bool
+    {
+        return  self.root?.pointee.color ?? .black == .black &&
+                BalancedTree.verify(self.root) != nil
     }
 
     @inline(__always)
@@ -288,7 +297,7 @@ struct BalancedTree<Element>
         }
     }
 
-    // destroys the node and all of its children
+    // deinitializes and deallocates the node and all of its children
     private static
     func destroy(_ node:UnsafeMutablePointer<Node>?)
     {
@@ -301,6 +310,38 @@ struct BalancedTree<Element>
         BalancedTree.destroy(node.pointee.rchild)
         node.deinitialize(count: 1)
         node.deallocate(capacity: 1)
+    }
+
+    // verifies that all paths in `node`’s subtree have the same black height,
+    // and that `node` and all of its children satisfy the red property.
+    private static
+    func verify(_ node:UnsafeMutablePointer<Node>?) -> Int?
+    {
+        guard let node:UnsafeMutablePointer<Node> = node
+        else
+        {
+            return 1
+        }
+
+        if node.pointee.color == .red
+        {
+            guard node.pointee.lchild?.pointee.color ?? .black == .black,
+                  node.pointee.rchild?.pointee.color ?? .black == .black
+            else
+            {
+                return nil
+            }
+        }
+
+        guard let   l_height:Int = BalancedTree.verify(node.pointee.lchild),
+              let   r_height:Int = BalancedTree.verify(node.pointee.rchild),
+                    l_height == r_height
+        else
+        {
+            return nil
+        }
+
+        return l_height + (node.pointee.color == .black ? 1 : 0)
     }
 }
 extension BalancedTree where Element:Comparable
@@ -383,5 +424,6 @@ do
         iterator = BalancedTree.predecessor(of: current)
     }
 
+    print(rbtree.verify())
     rbtree.destroy()
 }
