@@ -52,6 +52,23 @@ struct BalancedTree<Element>
     // returns the inserted node
     @discardableResult
     mutating
+    func append(_ element:Element) -> UnsafePointer<Node>
+    {
+        if let last:UnsafePointer<Node> = self.last()
+        {
+            return self.insert(element, after: UnsafeMutablePointer(mutating: last))
+        }
+        else
+        {
+            let root:UnsafeMutablePointer<Node> = Node.create(element, color: .black)
+            self.root = root
+            return UnsafePointer(root)
+        }
+    }
+
+    // returns the inserted node
+    @discardableResult
+    mutating
     func insert(_ element:Element, after predecessor:UnsafeMutablePointer<Node>)
         -> UnsafePointer<Node>
     {
@@ -249,6 +266,7 @@ struct BalancedTree<Element>
         let parent = UnsafeMutablePointer<Node>(mutating: BalancedTree.leftmost(from: rchild))
         parent.pointee.lchild      = node
         node.pointee.parent        = parent
+        BalancedTree.balance_insertion(at: node, root: &root)
     }
 
     private static
