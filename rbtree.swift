@@ -285,6 +285,7 @@ struct BalancedTree<Element>
         //         is an outer child. rotate on the grandparent, which is known
         //         to be black, and switch its color with the former parent’s.
         assert(n.pointee.parent != nil)
+
         n.pointee.parent?.pointee.color = .black
         grandparent.pointee.color       = .red
         if n == n.pointee.parent?.pointee.lchild
@@ -294,6 +295,234 @@ struct BalancedTree<Element>
         else
         {
             BalancedTree.rotate_left(grandparent, root: &root)
+        }
+    }
+
+    mutating
+    func delete(_ node:UnsafeMutablePointer<Node>)
+    {
+        BalancedTree.delete(node, root: &self.root)
+    }
+
+    private static
+    func delete(_ node:UnsafeMutablePointer<Node>,
+                  root:inout UnsafeMutablePointer<Node>?)
+    {
+        @inline(__always)
+        func _replace_link( to node:UnsafeMutablePointer<Node>,
+                            with other:UnsafeMutablePointer<Node>?,
+                            on_parent parent:UnsafeMutablePointer<Node>)
+        {
+            if node == parent.pointee.lchild
+            {
+                parent.pointee.lchild = other
+            }
+            else
+            {
+                parent.pointee.rchild = other
+            }
+        }
+
+        if let       _:UnsafeMutablePointer<Node> = node.pointee.lchild,
+           let  rchild:UnsafeMutablePointer<Node> = node.pointee.rchild
+        {
+            let replacement = UnsafeMutablePointer<Node>(mutating:
+                                        BalancedTree.leftmost(from: rchild))
+
+            // the replacement always lives below the node, so this shouldn’t
+            // disturb any links we are modifying later
+            if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
+            {
+                _replace_link(to: node, with: replacement, on_parent: parent)
+            }
+            else
+            {
+                root = replacement
+            }
+
+            // if we don’t do this check, we will accidentally double flip a link
+            if node == replacement.pointee.parent
+            {
+                // turn the links around so they get flipped correctly in the next step
+                replacement.pointee.parent = replacement
+                if replacement == node.pointee.lchild
+                {
+                    node.pointee.lchild = node
+                }
+                else
+                {
+                    node.pointee.rchild = node
+                }
+            }
+            else
+            {
+                // the replacement can never be the root, so it always has a parent
+                _replace_link(  to: replacement,
+                                with: node,
+                                on_parent: replacement.pointee.parent!)
+            }
+
+            // swap all container information, taking care of outgoing links
+            swap(&replacement.pointee.parent, &node.pointee.parent)
+            swap(&replacement.pointee.lchild, &node.pointee.lchild)
+            swap(&replacement.pointee.rchild, &node.pointee.rchild)
+            swap(&replacement.pointee.color , &node.pointee.color)
+
+            // fix uplink consistency
+            node.pointee.lchild?.pointee.parent        = node
+            node.pointee.rchild?.pointee.parent        = node
+            replacement.pointee.lchild?.pointee.parent = replacement
+            replacement.pointee.rchild?.pointee.parent = replacement
+        }
+
+        if      node.pointee.color == .red
+        {
+            assert(node.pointee.lchild == nil && node.pointee.rchild == nil)
+            // a red node cannot be the root, so it must have a parent
+            _replace_link(to: node, with: nil, on_parent: node.pointee.parent!)
+        }
+        else if let child:UnsafeMutablePointer<Node> = node.pointee.lchild ?? node.pointee.rchild,
+                    child.pointee.color == .red
+        {
+            if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
+            {
+                _replace_link(to: node, with: child, on_parent: parent)
+            }
+            else
+            {
+                root = child
+            }
+
+            child.pointee.parent = node.pointee.parent
+            child.pointee.color  = .black
+        }
+        else
+        {
+            assert(node.pointee.lchild == nil && node.pointee.rchild == nil)
+
+            BalancedTree.balance_deletion(phantom: node, root: &root)
+            // the root case is handled inside the
+            // BalancedTree.balance_deletion(phantom:root:) function
+            if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
+            {
+                _replace_link(to: node, with: nil, on_parent: parent)
+            }
+        }
+
+        node.deinitialize(count: 1)
+        node.deallocate(capacity: 1)
+    }
+
+    private static
+    func balance_deletion(phantom node:UnsafeMutablePointer<Node>,
+                                  root:inout UnsafeMutablePointer<Node>?)
+    {
+        // case 1: node is the root. do nothing (the entire tree has been deleted)
+        guard let parent:UnsafeMutablePointer<Node> = node.pointee.parent
+        else
+        {
+            root = nil
+            return
+        }
+        // the node must have a sibling, since if it did not, the sibling subtree
+        // would only contribute +1 black height compared to the node’s subtree’s
+        // +2 black height.
+        var sibling:UnsafeMutablePointer<Node>    = node == parent.pointee.lchild ?
+                                                    parent.pointee.rchild! :
+                                                    parent.pointee.lchild!
+        // case 2: the node’s sibling is red. (the parent must be black.)
+        //         make the parent red and the sibling black. rotate on the parent.
+        //         fallthrough to cases 4–6.
+        if sibling.pointee.color == .red
+        {
+            parent.pointee.color  = .red
+            sibling.pointee.color = .black
+            if node == parent.pointee.lchild
+            {
+                BalancedTree.rotate_left(parent, root: &root)
+            }
+            else
+            {
+                BalancedTree.rotate_right(parent, root: &root)
+            }
+
+            // update the sibling. the sibling must have children because it is
+            // red and has a black sibling (the node we are deleting).
+            sibling   = node == parent.pointee.lchild ?
+                        parent.pointee.rchild! :
+                        parent.pointee.lchild!
+        }
+        // case 3: the parent and sibling are both black. on the first iteration,
+        //         the sibling has no children or else the black property would ,
+        //         not have been held. however later, the sibling may have children
+        //         which must both be black. repaint the sibling red, then fix the
+        //         parent.
+        else if parent.pointee.color  == .black,
+                sibling.pointee.lchild?.pointee.color ?? .black == .black,
+                sibling.pointee.rchild?.pointee.color ?? .black == .black
+        {
+            sibling.pointee.color = .red
+
+            // recursive call
+            BalancedTree.balance_deletion(phantom: parent, root: &root)
+            return
+        }
+
+        // from this point on, the sibling is assumed black because of case 2
+        assert(sibling.pointee.color == .black)
+
+        // case 4: the sibling is black, but the parent is red. repaint the sibling
+        //         red and the parent black.
+        if      parent.pointee.color  == .red,
+                sibling.pointee.lchild?.pointee.color ?? .black == .black,
+                sibling.pointee.rchild?.pointee.color ?? .black == .black
+        {
+            sibling.pointee.color = .red
+            parent.pointee.color  = .black
+            return
+        }
+        // from this point on, the sibling is assumed to have at least one red child
+        // because of cases 2–4
+
+        // case 5: the sibling has one red inner child. (the parent’s color does
+        //         not matter.) rotate on the sibling and switch its color and that
+        //         of its child so that the new sibling has a red outer child.
+        //         fallthrough to case 6.
+        else if node == parent.pointee.lchild,
+                sibling.pointee.rchild?.pointee.color ?? .black == .black
+        {
+            sibling.pointee.color                 = .red
+            sibling.pointee.lchild!.pointee.color = .black
+
+            // update the sibling
+            sibling               = BalancedTree.rotate_right(sibling)
+            parent.pointee.rchild = sibling
+        }
+        else if node == parent.pointee.rchild,
+                sibling.pointee.lchild?.pointee.color ?? .black == .black
+        {
+            sibling.pointee.color                 = .red
+            sibling.pointee.rchild!.pointee.color = .black
+
+            // update the sibling
+            sibling               = BalancedTree.rotate_left(sibling)
+            parent.pointee.lchild = sibling
+        }
+
+        // case 6: the sibling has at least one red child on the outside. switch
+        // the colors of the parent and the sibling, make the outer child black,
+        // and rotate on the parent.
+        sibling.pointee.color = parent.pointee.color
+        parent.pointee.color  = .black
+        if node == parent.pointee.lchild
+        {
+            sibling.pointee.rchild!.pointee.color = .black
+            BalancedTree.rotate_left(parent, root: &root)
+        }
+        else
+        {
+            sibling.pointee.lchild!.pointee.color = .black
+            BalancedTree.rotate_right(parent, root: &root)
         }
     }
 
@@ -406,10 +635,17 @@ do
     {
         _nodes.append(rbtree.insert(v))
     }
-
     print(_nodes.map{"@\($0) : \($0.pointee)"}.joined(separator: "\n"))
 
+    // test the integrity of the tree by traversing it, doing it forwards and
+    // backwards traverses each link forwards and backwards at least once.
+    for node in _nodes.dropLast()
+    {
+        print(rbtree.verify())
+        rbtree.delete(UnsafeMutablePointer(mutating: node))
+    }
 
+    print(rbtree.verify())
     var iterator:UnsafePointer<BalancedTree<Int>.Node>? = rbtree.first()
     while let current:UnsafePointer<BalancedTree<Int>.Node> = iterator
     {
@@ -424,6 +660,5 @@ do
         iterator = BalancedTree.predecessor(of: current)
     }
 
-    print(rbtree.verify())
     rbtree.destroy()
 }
