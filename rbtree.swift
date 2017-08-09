@@ -424,11 +424,15 @@ struct BalancedTree<Element>
             assert(node.pointee.lchild == nil && node.pointee.rchild == nil)
 
             BalancedTree.balance_deletion(phantom: node, root: &root)
-            // the root case is handled inside the
+            // the root case is checked but not handled inside the
             // BalancedTree.balance_deletion(phantom:root:) function
             if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
             {
                 _replace_link(to: node, with: nil, on_parent: parent)
+            }
+            else
+            {
+                root = nil
             }
         }
 
@@ -440,11 +444,11 @@ struct BalancedTree<Element>
     func balance_deletion(phantom node:UnsafeMutablePointer<Node>,
                                   root:inout UnsafeMutablePointer<Node>?)
     {
-        // case 1: node is the root. do nothing (the entire tree has been deleted)
+        // case 1: node is the root. do nothing. don’t nil out the root because
+        // we may be here on a recursive call
         guard let parent:UnsafeMutablePointer<Node> = node.pointee.parent
         else
         {
-            root = nil
             return
         }
         // the node must have a sibling, since if it did not, the sibling subtree
@@ -681,6 +685,7 @@ extension BalancedTree where Element:Comparable
 
 
 // tests
+/*
 do
 {
     var rbtree:BalancedTree<Int> = BalancedTree()
@@ -717,8 +722,8 @@ do
 
     rbtree.destroy()
 }
+*/
 
-/*
 // random insertion stress test
 import func Glibc.clock
 // not mine, i stole this from stackoverflow
@@ -755,7 +760,28 @@ do
             state = state &* 2862933555777941757 + 3037000493
             handle = rbtree.insert(state >> 32)
         }
+        assert(rbtree.verify())
         print(clock() - time1, terminator: " ")
+
+        /*
+        var iterator:UnsafePointer<BalancedTree<UInt64>.Node>? = rbtree.first()
+        while let current:UnsafePointer<BalancedTree<UInt64>.Node> = iterator
+        {
+            print(current.pointee.element, current.pointee.parent ?? "nil")
+            iterator = BalancedTree.successor(of: current)
+        }
+        */
+
+        state = 13
+        for _ in 0 ..< n
+        {
+            state = state &* 2862933555777941757 + 3037000493
+            handle = rbtree.find(state >> 32)!
+            rbtree.delete(UnsafeMutablePointer(mutating: handle))
+            assert(rbtree.verify())
+        }
+
+        assert(rbtree.verify())
         //print("(@ \(handle)", terminator: " ")
         rbtree.destroy()
 
@@ -771,4 +797,3 @@ do
         print("[n = \(n)]")
     }
 }
-*/
