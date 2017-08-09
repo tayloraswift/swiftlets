@@ -19,25 +19,6 @@ struct BalancedTree<Element>
         fileprivate
         var color:Color
 
-        fileprivate
-        var grandparent:UnsafeMutablePointer<Node>?
-        {
-            return self.parent?.pointee.parent
-        }
-
-        fileprivate
-        var uncle:UnsafeMutablePointer<Node>?
-        {
-            guard let grandparent:UnsafeMutablePointer<Node> = self.grandparent
-            else
-            {
-                return nil
-            }
-
-            return self.parent == grandparent.pointee.lchild ?
-                grandparent.pointee.rchild : grandparent.pointee.lchild
-        }
-
         fileprivate static
         func create(_ value:Element, color:Color = .red) -> UnsafeMutablePointer<Node>
         {
@@ -66,6 +47,23 @@ struct BalancedTree<Element>
     {
         return  self.root?.pointee.color ?? .black == .black &&
                 BalancedTree.verify(self.root) != nil
+    }
+
+    // returns the inserted node
+    @discardableResult
+    mutating
+    func insert(_ element:Element, after predecessor:UnsafeMutablePointer<Node>)
+        -> UnsafePointer<Node>
+    {
+        let new:UnsafeMutablePointer<Node> = Node.create(element)
+        BalancedTree.insert(new, after: predecessor, root: &self.root)
+        return UnsafePointer(new)
+    }
+
+    mutating
+    func delete(_ node:UnsafeMutablePointer<Node>)
+    {
+        BalancedTree.delete(node, root: &self.root)
     }
 
     @inline(__always)
@@ -183,6 +181,14 @@ struct BalancedTree<Element>
     }
 
     private static
+    func rotate_left(_ pivot:UnsafeMutablePointer<Node>,
+                       root:inout UnsafeMutablePointer<Node>?)
+    {
+        BalancedTree.rotate(pivot, root: &root, rotation: BalancedTree.rotate_left(_:))
+    }
+
+    // performs a left rotation and returns the new vertex
+    private static
     func rotate_left(_ pivot:UnsafeMutablePointer<Node>) -> UnsafeMutablePointer<Node>
     {
         let new_vertex:UnsafeMutablePointer<Node> = pivot.pointee.rchild!
@@ -197,12 +203,13 @@ struct BalancedTree<Element>
     }
 
     private static
-    func rotate_left(_ pivot:UnsafeMutablePointer<Node>,
-                       root:inout UnsafeMutablePointer<Node>?)
+    func rotate_right(_ pivot:UnsafeMutablePointer<Node>,
+                        root:inout UnsafeMutablePointer<Node>?)
     {
-        BalancedTree.rotate(pivot, root: &root, rotation: BalancedTree.rotate_left(_:))
+        BalancedTree.rotate(pivot, root: &root, rotation: BalancedTree.rotate_right(_:))
     }
 
+    // performs a right rotation and returns the new vertex
     private static
     func rotate_right(_ pivot:UnsafeMutablePointer<Node>) -> UnsafeMutablePointer<Node>
     {
@@ -218,15 +225,25 @@ struct BalancedTree<Element>
     }
 
     private static
-    func rotate_right(_ pivot:UnsafeMutablePointer<Node>,
-                        root:inout UnsafeMutablePointer<Node>?)
+    func insert(_ node:UnsafeMutablePointer<Node>, after predecessor:UnsafeMutablePointer<Node>,
+                  root:inout UnsafeMutablePointer<Node>?)
     {
-        BalancedTree.rotate(pivot, root: &root, rotation: BalancedTree.rotate_right(_:))
+        guard let rchild:UnsafeMutablePointer<Node> = predecessor.pointee.rchild
+        else
+        {
+            predecessor.pointee.rchild = node
+            node.pointee.parent        = predecessor
+            return
+        }
+
+        let parent = UnsafeMutablePointer<Node>(mutating: BalancedTree.leftmost(from: rchild))
+        parent.pointee.lchild      = node
+        node.pointee.parent        = parent
     }
 
     private static
-    func balance(on node:UnsafeMutablePointer<Node>,
-                    root:inout UnsafeMutablePointer<Node>?)
+    func balance_insertion(at node:UnsafeMutablePointer<Node>,
+                              root:inout UnsafeMutablePointer<Node>?)
     {
         assert(node.pointee.color == .red)
         // case 1: the node is the root. repaint the node black
@@ -243,11 +260,13 @@ struct BalancedTree<Element>
         }
         // from here on out, the node *must* have a grandparent because its
         // parent is red which means it cannot be the root
-        let grandparent:UnsafeMutablePointer<Node> = node.pointee.grandparent!
+        let grandparent:UnsafeMutablePointer<Node> = parent.pointee.parent!
 
         // case 3: both the parent and the uncle are red. repaint both of them
         //         black and make the grandparent red. fix the grandparent.
-        if let  uncle:UnsafeMutablePointer<Node> = node.pointee.uncle,
+        if let  uncle:UnsafeMutablePointer<Node>  = parent == grandparent.pointee.lchild ?
+                                                    grandparent.pointee.rchild :
+                                                    grandparent.pointee.lchild,
                 uncle.pointee.color == .red
         {
             parent.pointee.color            = .black
@@ -255,7 +274,7 @@ struct BalancedTree<Element>
 
             // recursive call
             grandparent.pointee.color       = .red
-            BalancedTree.balance(on: grandparent, root: &root)
+            BalancedTree.balance_insertion(at: grandparent, root: &root)
             // swift can tail call optimize this right?
             return
         }
@@ -296,12 +315,6 @@ struct BalancedTree<Element>
         {
             BalancedTree.rotate_left(grandparent, root: &root)
         }
-    }
-
-    mutating
-    func delete(_ node:UnsafeMutablePointer<Node>)
-    {
-        BalancedTree.delete(node, root: &self.root)
     }
 
     private static
@@ -619,7 +632,7 @@ extension BalancedTree where Element:Comparable
         }
 
         new.pointee.parent = current
-        BalancedTree.balance(on: new, root: &self.root)
+        BalancedTree.balance_insertion(at: new, root: &self.root)
         return UnsafePointer(new)
     }
 }
@@ -635,7 +648,7 @@ do
     {
         _nodes.append(rbtree.insert(v))
     }
-    print(_nodes.map{"@\($0) : \($0.pointee)"}.joined(separator: "\n"))
+    //print(_nodes.map{"@\($0) : \($0.pointee)"}.joined(separator: "\n"))
 
     // test the integrity of the tree by traversing it, doing it forwards and
     // backwards traverses each link forwards and backwards at least once.
@@ -662,3 +675,58 @@ do
 
     rbtree.destroy()
 }
+
+/*
+// random insertion stress test
+import func Glibc.clock
+// not mine, i stole this from stackoverflow
+extension Array
+{
+    func insertionIndexOf(_ elem:Element, _ isOrderedBefore:(Element, Element) -> Bool) -> Int
+    {
+        var lo = 0
+        var hi = self.count - 1
+        while lo <= hi {
+            let mid = (lo + hi)/2
+            if isOrderedBefore(self[mid], elem) {
+                lo = mid + 1
+            } else if isOrderedBefore(elem, self[mid]) {
+                hi = mid - 1
+            } else {
+                return mid // found at position mid
+            }
+        }
+        return lo // not found, would be inserted at position lo
+    }
+}
+do
+{
+    for n in (1 ... 100).map({ 1000 * $0 })
+    {
+        let time1:Int = clock()
+
+        var state:UInt64 = 13,
+            rbtree = BalancedTree<UInt64>(),
+            handle = UnsafePointer<BalancedTree<UInt64>.Node>(bitPattern: -1)!
+        for _ in 0 ..< n
+        {
+            state = state &* 2862933555777941757 + 3037000493
+            handle = rbtree.insert(state >> 32)
+        }
+        print(clock() - time1, terminator: " ")
+        //print("(@ \(handle)", terminator: " ")
+        rbtree.destroy()
+
+        let time2:Int = clock()
+        state = 13
+        var array:[UInt64] = []
+        for _ in 0 ..< n
+        {
+            state = state &* 2862933555777941757 + 3037000493
+            array.insert(state >> 32, at: array.insertionIndexOf(state >> 32, <))
+        }
+        print(clock() - time2, terminator: " ")
+        print("[n = \(n)]")
+    }
+}
+*/
