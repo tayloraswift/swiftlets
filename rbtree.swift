@@ -66,6 +66,16 @@ struct BalancedTree<Element>
         BalancedTree.delete(node, root: &self.root)
     }
 
+
+    func find(  going_left_if go_left:(UnsafePointer<Node>) -> Bool,
+                stopping_if stop:(UnsafePointer<Node>) -> Bool)
+        -> UnsafePointer<Node>?
+    {
+        return BalancedTree.find(   start: UnsafePointer(self.root),
+                                    going_left_if: go_left,
+                                    stopping_if: stop)
+    }
+
     @inline(__always)
     private
     func extreme(descent:(UnsafePointer<Node>) -> UnsafePointer<Node>)
@@ -539,6 +549,32 @@ struct BalancedTree<Element>
         }
     }
 
+    private static
+    func find(  start:UnsafePointer<Node>?,
+                going_left_if go_left:(UnsafePointer<Node>) -> Bool,
+                stopping_if stop:(UnsafePointer<Node>) -> Bool)
+        -> UnsafePointer<Node>?
+    {
+        var node:UnsafePointer<Node>? = start
+        while let current:UnsafePointer<Node> = node
+        {
+            if go_left(current)
+            {
+                node = UnsafePointer(current.pointee.lchild)
+            }
+            else if stop(current)
+            {
+                return current
+            }
+            else
+            {
+                node = UnsafePointer(current.pointee.rchild)
+            }
+        }
+
+        return nil
+    }
+
     // deinitializes and deallocates the node and all of its children
     private static
     func destroy(_ node:UnsafeMutablePointer<Node>?)
@@ -635,6 +671,12 @@ extension BalancedTree where Element:Comparable
         BalancedTree.balance_insertion(at: new, root: &self.root)
         return UnsafePointer(new)
     }
+
+    func find(_ element:Element) -> UnsafePointer<Node>?
+    {
+        return self.find(   going_left_if: { element <  $0.pointee.element },
+                            stopping_if:   { element == $0.pointee.element })
+    }
 }
 
 
@@ -649,7 +691,7 @@ do
         _nodes.append(rbtree.insert(v))
     }
     //print(_nodes.map{"@\($0) : \($0.pointee)"}.joined(separator: "\n"))
-
+    print(rbtree.find(11)?.pointee ?? "not found")
     // test the integrity of the tree by traversing it, doing it forwards and
     // backwards traverses each link forwards and backwards at least once.
     for node in _nodes.dropLast()
