@@ -1,14 +1,15 @@
 // a balanced tree which does not enforce Element to be comparable
-struct BalancedTree<Element>
+struct UnsafeBalancedTree<Element>
 {
     struct Node
     {
+        fileprivate
         enum Color
         {
             case red, black
         }
 
-        fileprivate
+        internal fileprivate(set)
         var parent:UnsafeMutablePointer<Node>?,
             lchild:UnsafeMutablePointer<Node>?,
             rchild:UnsafeMutablePointer<Node>?
@@ -31,14 +32,14 @@ struct BalancedTree<Element>
             return node
         }
     }
-
-    private(set)
+    
+    internal private(set)
     var root:UnsafeMutablePointer<Node>? = nil
 
     // frees the tree from memory
-    func destroy()
+    func deallocate()
     {
-        BalancedTree.destroy(self.root)
+        UnsafeBalancedTree.deallocate(self.root)
     }
 
     // verifies that all paths in the red-black tree have the same black height,
@@ -46,7 +47,7 @@ struct BalancedTree<Element>
     func verify() -> Bool
     {
         return  self.root?.pointee.color ?? .black == .black &&
-                BalancedTree.verify(self.root) != nil
+                UnsafeBalancedTree.verify(self.root) != nil
     }
 
     // returns the inserted node
@@ -73,24 +74,24 @@ struct BalancedTree<Element>
         -> UnsafePointer<Node>
     {
         let new:UnsafeMutablePointer<Node> = Node.create(element)
-        BalancedTree.insert(new, after: predecessor, root: &self.root)
+        UnsafeBalancedTree.insert(new, after: predecessor, root: &self.root)
         return UnsafePointer(new)
     }
 
     mutating
     func delete(_ node:UnsafeMutablePointer<Node>)
     {
-        BalancedTree.delete(node, root: &self.root)
+        UnsafeBalancedTree.delete(node, root: &self.root)
     }
 
 
-    func find(  going_left_if go_left:(UnsafePointer<Node>) -> Bool,
-                stopping_if stop:(UnsafePointer<Node>) -> Bool)
+    func find(  goingLeftIf goLeft:(UnsafePointer<Node>) -> Bool,
+                stoppingIf stop:(UnsafePointer<Node>) -> Bool)
         -> UnsafePointer<Node>?
     {
-        return BalancedTree.find(   start: UnsafePointer(self.root),
-                                    going_left_if: go_left,
-                                    stopping_if: stop)
+        return UnsafeBalancedTree.find( start: UnsafePointer(self.root),
+                                        goingLeftIf: goLeft,
+                                        stoppingIf: stop)
     }
 
     @inline(__always)
@@ -111,14 +112,14 @@ struct BalancedTree<Element>
     // complexity: O(log n)
     func first() -> UnsafePointer<Node>?
     {
-        return self.extreme(descent: BalancedTree.leftmost(from:))
+        return self.extreme(descent: UnsafeBalancedTree.leftmost(from:))
     }
 
     // returns the rightmost node in the tree, or nil if the tree is empty
     // complexity: O(log n)
     func last() -> UnsafePointer<Node>?
     {
-        return self.extreme(descent: BalancedTree.rightmost(from:))
+        return self.extreme(descent: UnsafeBalancedTree.rightmost(from:))
     }
 
     static
@@ -151,7 +152,7 @@ struct BalancedTree<Element>
     {
         if let rchild:UnsafeMutablePointer<Node> = node.pointee.rchild
         {
-            return BalancedTree.leftmost(from: rchild)
+            return leftmost(from: rchild)
         }
 
         var current:UnsafePointer<Node> = node
@@ -170,7 +171,7 @@ struct BalancedTree<Element>
     {
         if let lchild:UnsafeMutablePointer<Node> = node.pointee.lchild
         {
-            return BalancedTree.rightmost(from: lchild)
+            return rightmost(from: lchild)
         }
 
         var current:UnsafePointer<Node> = node
@@ -208,51 +209,52 @@ struct BalancedTree<Element>
     }
 
     private static
-    func rotate_left(_ pivot:UnsafeMutablePointer<Node>,
-                       root:inout UnsafeMutablePointer<Node>?)
+    func rotateLeft(_ pivot:UnsafeMutablePointer<Node>,
+                      root:inout UnsafeMutablePointer<Node>?)
     {
-        BalancedTree.rotate(pivot, root: &root, rotation: BalancedTree.rotate_left(_:))
+        rotate(pivot, root: &root, rotation: rotateLeft(_:))
     }
 
     // performs a left rotation and returns the new vertex
     private static
-    func rotate_left(_ pivot:UnsafeMutablePointer<Node>) -> UnsafeMutablePointer<Node>
+    func rotateLeft(_ pivot:UnsafeMutablePointer<Node>) -> UnsafeMutablePointer<Node>
     {
-        let new_vertex:UnsafeMutablePointer<Node> = pivot.pointee.rchild!
+        let newVertex:UnsafeMutablePointer<Node> = pivot.pointee.rchild!
 
-        new_vertex.pointee.lchild?.pointee.parent = pivot
-        new_vertex.pointee.parent                 = pivot.pointee.parent
-        pivot.pointee.parent                      = new_vertex
+        newVertex.pointee.lchild?.pointee.parent = pivot
+        newVertex.pointee.parent                 = pivot.pointee.parent
+        pivot.pointee.parent                     = newVertex
 
-        pivot.pointee.rchild                      = new_vertex.pointee.lchild
-        new_vertex.pointee.lchild                 = pivot
-        return new_vertex
+        pivot.pointee.rchild                     = newVertex.pointee.lchild
+        newVertex.pointee.lchild                 = pivot
+        return newVertex
     }
 
     private static
-    func rotate_right(_ pivot:UnsafeMutablePointer<Node>,
-                        root:inout UnsafeMutablePointer<Node>?)
+    func rotateRight(_ pivot:UnsafeMutablePointer<Node>,
+                       root:inout UnsafeMutablePointer<Node>?)
     {
-        BalancedTree.rotate(pivot, root: &root, rotation: BalancedTree.rotate_right(_:))
+        rotate(pivot, root: &root, rotation: rotateRight(_:))
     }
 
     // performs a right rotation and returns the new vertex
     private static
-    func rotate_right(_ pivot:UnsafeMutablePointer<Node>) -> UnsafeMutablePointer<Node>
+    func rotateRight(_ pivot:UnsafeMutablePointer<Node>) -> UnsafeMutablePointer<Node>
     {
-        let new_vertex:UnsafeMutablePointer<Node> = pivot.pointee.lchild!
+        let newVertex:UnsafeMutablePointer<Node> = pivot.pointee.lchild!
 
-        new_vertex.pointee.rchild?.pointee.parent = pivot
-        new_vertex.pointee.parent                 = pivot.pointee.parent
-        pivot.pointee.parent                      = new_vertex
+        newVertex.pointee.rchild?.pointee.parent = pivot
+        newVertex.pointee.parent                 = pivot.pointee.parent
+        pivot.pointee.parent                     = newVertex
 
-        pivot.pointee.lchild                      = new_vertex.pointee.rchild
-        new_vertex.pointee.rchild                 = pivot
-        return new_vertex
+        pivot.pointee.lchild                     = newVertex.pointee.rchild
+        newVertex.pointee.rchild                 = pivot
+        return newVertex
     }
 
     private static
-    func insert(_ node:UnsafeMutablePointer<Node>, after predecessor:UnsafeMutablePointer<Node>,
+    func insert(_ node:UnsafeMutablePointer<Node>,
+                  after predecessor:UnsafeMutablePointer<Node>,
                   root:inout UnsafeMutablePointer<Node>?)
     {
         guard let rchild:UnsafeMutablePointer<Node> = predecessor.pointee.rchild
@@ -263,15 +265,15 @@ struct BalancedTree<Element>
             return
         }
 
-        let parent = UnsafeMutablePointer<Node>(mutating: BalancedTree.leftmost(from: rchild))
+        let parent = UnsafeMutablePointer<Node>(mutating: leftmost(from: rchild))
         parent.pointee.lchild      = node
         node.pointee.parent        = parent
-        BalancedTree.balance_insertion(at: node, root: &root)
+        balanceInsertion(at: node, root: &root)
     }
 
     private static
-    func balance_insertion(at node:UnsafeMutablePointer<Node>,
-                              root:inout UnsafeMutablePointer<Node>?)
+    func balanceInsertion(at node:UnsafeMutablePointer<Node>,
+                             root:inout UnsafeMutablePointer<Node>?)
     {
         assert(node.pointee.color == .red)
         // case 1: the node is the root. repaint the node black
@@ -302,7 +304,7 @@ struct BalancedTree<Element>
 
             // recursive call
             grandparent.pointee.color       = .red
-            BalancedTree.balance_insertion(at: grandparent, root: &root)
+            balanceInsertion(at: grandparent, root: &root)
             // swift can tail call optimize this right?
             return
         }
@@ -315,13 +317,13 @@ struct BalancedTree<Element>
                 parent == grandparent.pointee.lchild
         {
             n = parent
-            grandparent.pointee.lchild = BalancedTree.rotate_left(parent)
+            grandparent.pointee.lchild = rotateLeft(parent)
         }
         else if node   == parent.pointee.lchild,
                 parent == grandparent.pointee.rchild
         {
             n = parent
-            grandparent.pointee.rchild = BalancedTree.rotate_right(parent)
+            grandparent.pointee.rchild = rotateRight(parent)
         }
         else
         {
@@ -337,11 +339,11 @@ struct BalancedTree<Element>
         grandparent.pointee.color       = .red
         if n == n.pointee.parent?.pointee.lchild
         {
-            BalancedTree.rotate_right(grandparent, root: &root)
+            rotateRight(grandparent, root: &root)
         }
         else
         {
-            BalancedTree.rotate_left(grandparent, root: &root)
+            rotateLeft(grandparent, root: &root)
         }
     }
 
@@ -350,7 +352,7 @@ struct BalancedTree<Element>
                   root:inout UnsafeMutablePointer<Node>?)
     {
         @inline(__always)
-        func _replace_link( to node:UnsafeMutablePointer<Node>,
+        func _replaceLink(  to node:UnsafeMutablePointer<Node>,
                             with other:UnsafeMutablePointer<Node>?,
                             on_parent parent:UnsafeMutablePointer<Node>)
         {
@@ -367,14 +369,13 @@ struct BalancedTree<Element>
         if let       _:UnsafeMutablePointer<Node> = node.pointee.lchild,
            let  rchild:UnsafeMutablePointer<Node> = node.pointee.rchild
         {
-            let replacement = UnsafeMutablePointer<Node>(mutating:
-                                        BalancedTree.leftmost(from: rchild))
+            let replacement = UnsafeMutablePointer<Node>(mutating: leftmost(from: rchild))
 
             // the replacement always lives below the node, so this shouldn’t
             // disturb any links we are modifying later
             if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
             {
-                _replace_link(to: node, with: replacement, on_parent: parent)
+                _replaceLink(to: node, with: replacement, on_parent: parent)
             }
             else
             {
@@ -398,7 +399,7 @@ struct BalancedTree<Element>
             else
             {
                 // the replacement can never be the root, so it always has a parent
-                _replace_link(  to: replacement,
+                _replaceLink(   to: replacement,
                                 with: node,
                                 on_parent: replacement.pointee.parent!)
             }
@@ -420,14 +421,14 @@ struct BalancedTree<Element>
         {
             assert(node.pointee.lchild == nil && node.pointee.rchild == nil)
             // a red node cannot be the root, so it must have a parent
-            _replace_link(to: node, with: nil, on_parent: node.pointee.parent!)
+            _replaceLink(to: node, with: nil, on_parent: node.pointee.parent!)
         }
         else if let child:UnsafeMutablePointer<Node> = node.pointee.lchild ?? node.pointee.rchild,
                     child.pointee.color == .red
         {
             if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
             {
-                _replace_link(to: node, with: child, on_parent: parent)
+                _replaceLink(to: node, with: child, on_parent: parent)
             }
             else
             {
@@ -441,12 +442,12 @@ struct BalancedTree<Element>
         {
             assert(node.pointee.lchild == nil && node.pointee.rchild == nil)
 
-            BalancedTree.balance_deletion(phantom: node, root: &root)
+            balanceDeletion(phantom: node, root: &root)
             // the root case is checked but not handled inside the
-            // BalancedTree.balance_deletion(phantom:root:) function
+            // balanceDeletion(phantom:root:) function
             if let parent:UnsafeMutablePointer<Node> = node.pointee.parent
             {
-                _replace_link(to: node, with: nil, on_parent: parent)
+                _replaceLink(to: node, with: nil, on_parent: parent)
             }
             else
             {
@@ -459,8 +460,8 @@ struct BalancedTree<Element>
     }
 
     private static
-    func balance_deletion(phantom node:UnsafeMutablePointer<Node>,
-                                  root:inout UnsafeMutablePointer<Node>?)
+    func balanceDeletion(phantom node:UnsafeMutablePointer<Node>,
+                                 root:inout UnsafeMutablePointer<Node>?)
     {
         // case 1: node is the root. do nothing. don’t nil out the root because
         // we may be here on a recursive call
@@ -484,11 +485,11 @@ struct BalancedTree<Element>
             sibling.pointee.color = .black
             if node == parent.pointee.lchild
             {
-                BalancedTree.rotate_left(parent, root: &root)
+                rotateLeft(parent, root: &root)
             }
             else
             {
-                BalancedTree.rotate_right(parent, root: &root)
+                rotateRight(parent, root: &root)
             }
 
             // update the sibling. the sibling must have children because it is
@@ -509,7 +510,7 @@ struct BalancedTree<Element>
             sibling.pointee.color = .red
 
             // recursive call
-            BalancedTree.balance_deletion(phantom: parent, root: &root)
+            balanceDeletion(phantom: parent, root: &root)
             return
         }
 
@@ -540,7 +541,7 @@ struct BalancedTree<Element>
             sibling.pointee.lchild!.pointee.color = .black
 
             // update the sibling
-            sibling               = BalancedTree.rotate_right(sibling)
+            sibling               = rotateRight(sibling)
             parent.pointee.rchild = sibling
         }
         else if node == parent.pointee.rchild,
@@ -550,7 +551,7 @@ struct BalancedTree<Element>
             sibling.pointee.rchild!.pointee.color = .black
 
             // update the sibling
-            sibling               = BalancedTree.rotate_left(sibling)
+            sibling               = rotateLeft(sibling)
             parent.pointee.lchild = sibling
         }
 
@@ -562,25 +563,25 @@ struct BalancedTree<Element>
         if node == parent.pointee.lchild
         {
             sibling.pointee.rchild!.pointee.color = .black
-            BalancedTree.rotate_left(parent, root: &root)
+            rotateLeft(parent, root: &root)
         }
         else
         {
             sibling.pointee.lchild!.pointee.color = .black
-            BalancedTree.rotate_right(parent, root: &root)
+            rotateRight(parent, root: &root)
         }
     }
 
     private static
     func find(  start:UnsafePointer<Node>?,
-                going_left_if go_left:(UnsafePointer<Node>) -> Bool,
-                stopping_if stop:(UnsafePointer<Node>) -> Bool)
+                goingLeftIf goLeft:(UnsafePointer<Node>) -> Bool,
+                stoppingIf stop:(UnsafePointer<Node>) -> Bool)
         -> UnsafePointer<Node>?
     {
         var node:UnsafePointer<Node>? = start
         while let current:UnsafePointer<Node> = node
         {
-            if go_left(current)
+            if goLeft(current)
             {
                 node = UnsafePointer(current.pointee.lchild)
             }
@@ -599,15 +600,15 @@ struct BalancedTree<Element>
 
     // deinitializes and deallocates the node and all of its children
     private static
-    func destroy(_ node:UnsafeMutablePointer<Node>?)
+    func deallocate(_ node:UnsafeMutablePointer<Node>?)
     {
         guard let node:UnsafeMutablePointer<Node> = node
         else
         {
             return
         }
-        BalancedTree.destroy(node.pointee.lchild)
-        BalancedTree.destroy(node.pointee.rchild)
+        deallocate(node.pointee.lchild)
+        deallocate(node.pointee.rchild)
         node.deinitialize(count: 1)
         node.deallocate(capacity: 1)
     }
@@ -633,8 +634,8 @@ struct BalancedTree<Element>
             }
         }
 
-        guard let   l_height:Int = BalancedTree.verify(node.pointee.lchild),
-              let   r_height:Int = BalancedTree.verify(node.pointee.rchild),
+        guard let   l_height:Int = verify(node.pointee.lchild),
+              let   r_height:Int = verify(node.pointee.rchild),
                     l_height == r_height
         else
         {
@@ -644,7 +645,7 @@ struct BalancedTree<Element>
         return l_height + (node.pointee.color == .black ? 1 : 0)
     }
 }
-extension BalancedTree where Element:Comparable
+extension UnsafeBalancedTree where Element:Comparable
 {
     // returns the inserted node
     @discardableResult
@@ -690,14 +691,14 @@ extension BalancedTree where Element:Comparable
         }
 
         new.pointee.parent = current
-        BalancedTree.balance_insertion(at: new, root: &self.root)
+        UnsafeBalancedTree.balanceInsertion(at: new, root: &self.root)
         return UnsafePointer(new)
     }
 
     func find(_ element:Element) -> UnsafePointer<Node>?
     {
-        return self.find(   going_left_if: { element <  $0.pointee.element },
-                            stopping_if:   { element == $0.pointee.element })
+        return self.find(   goingLeftIf: { element <  $0.pointee.element },
+                            stoppingIf:  { element == $0.pointee.element })
     }
 }
 
@@ -706,9 +707,9 @@ extension BalancedTree where Element:Comparable
 /*
 do
 {
-    var rbtree:BalancedTree<Int> = BalancedTree()
+    var rbtree:UnsafeBalancedTree<Int> = UnsafeBalancedTree()
 
-    var _nodes:[UnsafePointer<BalancedTree<Int>.Node>] = []
+    var _nodes:[UnsafePointer<UnsafeBalancedTree<Int>.Node>] = []
     for v in 0 ..< 12
     {
         _nodes.append(rbtree.insert(v))
@@ -724,21 +725,21 @@ do
     }
 
     print(rbtree.verify())
-    var iterator:UnsafePointer<BalancedTree<Int>.Node>? = rbtree.first()
-    while let current:UnsafePointer<BalancedTree<Int>.Node> = iterator
+    var iterator:UnsafePointer<UnsafeBalancedTree<Int>.Node>? = rbtree.first()
+    while let current:UnsafePointer<UnsafeBalancedTree<Int>.Node> = iterator
     {
         print(current.pointee.element)
-        iterator = BalancedTree.successor(of: current)
+        iterator = UnsafeBalancedTree.successor(of: current)
     }
 
     iterator = rbtree.last()
-    while let current:UnsafePointer<BalancedTree<Int>.Node> = iterator
+    while let current:UnsafePointer<UnsafeBalancedTree<Int>.Node> = iterator
     {
         print(current.pointee.element)
-        iterator = BalancedTree.predecessor(of: current)
+        iterator = UnsafeBalancedTree.predecessor(of: current)
     }
 
-    rbtree.destroy()
+    rbtree.deallocate()
 }
 */
 
@@ -771,8 +772,8 @@ do
         let time1:Int = clock()
 
         var state:UInt64 = 13,
-            rbtree = BalancedTree<UInt64>(),
-            handle = UnsafePointer<BalancedTree<UInt64>.Node>(bitPattern: -1)!
+            rbtree = UnsafeBalancedTree<UInt64>(),
+            handle = UnsafePointer<UnsafeBalancedTree<UInt64>.Node>(bitPattern: -1)!
         for _ in 0 ..< n
         {
             state = state &* 2862933555777941757 + 3037000493
@@ -782,18 +783,18 @@ do
         print(clock() - time1, terminator: " ")
 
         /*
-        var iterator:UnsafePointer<BalancedTree<UInt64>.Node>? = rbtree.first()
-        while let current:UnsafePointer<BalancedTree<UInt64>.Node> = iterator
+        var iterator:UnsafePointer<UnsafeBalancedTree<UInt64>.Node>? = rbtree.first()
+        while let current:UnsafePointer<UnsafeBalancedTree<UInt64>.Node> = iterator
         {
             print(current.pointee.element, current.pointee.parent ?? "nil")
-            iterator = BalancedTree.successor(of: current)
+            iterator = UnsafeBalancedTree.successor(of: current)
         }
         */
 
         state = 13
         for _ in 0 ..< n
         {
-            state = state &* 2862933555777941757 + 3037000493
+            state  = state &* 2862933555777941757 + 3037000493
             handle = rbtree.find(state >> 32)!
             rbtree.delete(UnsafeMutablePointer(mutating: handle))
             assert(rbtree.verify())
@@ -801,7 +802,7 @@ do
 
         assert(rbtree.verify())
         //print("(@ \(handle)", terminator: " ")
-        rbtree.destroy()
+        rbtree.deallocate()
 
         let time2:Int = clock()
         state = 13
