@@ -1,4 +1,4 @@
-struct UnsafeBalancedTree<Element>
+struct UnsafeBalancedTree<Element>:Sequence
 {
     fileprivate
     struct NodeCore
@@ -111,19 +111,109 @@ struct UnsafeBalancedTree<Element>
         {
             return a.core == b.core
         }
+
+        // returns the inorder successor of the node in amortized O(1) time
+        func successor() -> Node?
+        {
+            if let rchild:Node = self.rchild
+            {
+                return rchild.leftmost()
+            }
+
+            var current:Node = self
+            while let   parent:Node = current.parent,
+                        current == parent.rchild
+            {
+                current = parent
+            }
+
+            return current.parent
+        }
+
+        // returns the inorder predecessor of the node in amortized O(1) time
+        func predecessor() -> Node?
+        {
+            if let lchild:Node = self.lchild
+            {
+                return lchild.rightmost()
+            }
+
+            var current:Node = self
+            while let   parent:Node = current.parent,
+                        current == parent.lchild
+            {
+                current = parent
+            }
+
+            return current.parent
+        }
+
+        func leftmost() -> Node
+        {
+            var leftmost:Node = self
+            while let lchild:Node = leftmost.lchild
+            {
+                leftmost = lchild
+            }
+
+            return leftmost
+        }
+
+        func rightmost() -> Node
+        {
+            var rightmost:Node = self
+            while let rchild:Node = rightmost.rchild
+            {
+                rightmost = rchild
+            }
+
+            return rightmost
+        }
+    }
+
+    struct Iterator:IteratorProtocol
+    {
+        private
+        var node:Node?
+
+        fileprivate
+        init(node:Node?)
+        {
+            self.node = node
+        }
+
+        mutating
+        func next() -> Element?
+        {
+            guard let node:Node = self.node
+            else
+            {
+                return nil
+            }
+
+            let value:Element = node.element
+            self.node = node.successor()
+            return value
+        }
     }
 
     internal private(set)
     var root:Node? = nil
 
+    func makeIterator() -> Iterator
+    {
+        return Iterator(node: self.first())
+    }
+
     // frees the tree from memory
     func deallocate()
     {
-        UnsafeBalancedTree.deallocate(self.root)
+        UnsafeBalancedTree.deallocateTree(self.root)
     }
 
     // verifies that all paths in the red-black tree have the same black height,
     // that all nodes satisfy the red property, and that the root is black
+    fileprivate
     func verify() -> Bool
     {
         return  self.root?.color ?? .black == .black &&
@@ -158,98 +248,23 @@ struct UnsafeBalancedTree<Element>
     }
 
     mutating
-    func delete(_ node:Node)
+    func remove(_ node:Node)
     {
-        UnsafeBalancedTree.delete(node, root: &self.root)
-    }
-
-    @inline(__always)
-    private
-    func extreme(descent:(Node) -> Node) -> Node?
-    {
-        guard let root:Node = self.root
-        else
-        {
-            return nil
-        }
-
-        return descent(root)
+        UnsafeBalancedTree.remove(node, root: &self.root)
     }
 
     // returns the leftmost node in the tree, or nil if the tree is empty
     // complexity: O(log n)
     func first() -> Node?
     {
-        return self.extreme(descent: UnsafeBalancedTree.leftmost(from:))
+        return self.root?.leftmost()
     }
 
     // returns the rightmost node in the tree, or nil if the tree is empty
     // complexity: O(log n)
     func last() -> Node?
     {
-        return self.extreme(descent: UnsafeBalancedTree.rightmost(from:))
-    }
-
-    static
-    func leftmost(from node:Node) -> Node
-    {
-        var leftmost:Node = node
-        while let lchild:Node = leftmost.lchild
-        {
-            leftmost = lchild
-        }
-
-        return leftmost
-    }
-
-    static
-    func rightmost(from node:Node) -> Node
-    {
-        var rightmost:Node = node
-        while let rchild:Node = rightmost.rchild
-        {
-            rightmost = rchild
-        }
-
-        return rightmost
-    }
-
-    // returns the inorder successor of the node in amortized O(1) time
-    static
-    func successor(of node:Node) -> Node?
-    {
-        if let rchild:Node = node.rchild
-        {
-            return leftmost(from: rchild)
-        }
-
-        var current:Node = node
-        while let   parent:Node = current.parent,
-                    current == parent.rchild
-        {
-            current = parent
-        }
-
-        return current.parent
-    }
-
-    // returns the inorder predecessor of the node in amortized O(1) time
-    static
-    func predecessor(of node:Node) -> Node?
-    {
-        if let lchild:Node = node.lchild
-        {
-            return rightmost(from: lchild)
-        }
-
-        var current:Node = node
-        while let   parent:Node = current.parent,
-                    current == parent.lchild
-        {
-            current = parent
-        }
-
-        return current.parent
+        return self.root?.rightmost()
     }
 
     @inline(__always)
@@ -317,9 +332,7 @@ struct UnsafeBalancedTree<Element>
     }
 
     private static
-    func insert(_ node:Node,
-                  after predecessor:Node,
-                  root:inout Node?)
+    func insert(_ node:Node, after predecessor:Node, root:inout Node?)
     {
         guard let rchild:Node = predecessor.rchild
         else
@@ -329,15 +342,14 @@ struct UnsafeBalancedTree<Element>
             return
         }
 
-        let parent:Node = leftmost(from: rchild)
+        let parent:Node = rchild.leftmost()
         parent.lchild   = node
         node.parent     = parent
         balanceInsertion(at: node, root: &root)
     }
 
     private static
-    func balanceInsertion(at node:Node,
-                             root:inout Node?)
+    func balanceInsertion(at node:Node, root:inout Node?)
     {
         assert(node.color == .red)
         // case 1: the node is the root. repaint the node black
@@ -411,13 +423,10 @@ struct UnsafeBalancedTree<Element>
     }
 
     private static
-    func delete(_ node:Node,
-                  root:inout Node?)
+    func remove(_ node:Node, root:inout Node?)
     {
         @inline(__always)
-        func _replaceLink(  to node:Node,
-                            with other:Node?,
-                            on_parent parent:Node)
+        func _replaceLink(to node:Node, with other:Node?, onParent parent:Node)
         {
             if node == parent.lchild
             {
@@ -432,13 +441,13 @@ struct UnsafeBalancedTree<Element>
         if let       _:Node = node.lchild,
            let  rchild:Node = node.rchild
         {
-            let replacement:Node = leftmost(from: rchild)
+            let replacement:Node = rchild.leftmost()
 
             // the replacement always lives below the node, so this shouldn’t
             // disturb any links we are modifying later
             if let parent:Node = node.parent
             {
-                _replaceLink(to: node, with: replacement, on_parent: parent)
+                _replaceLink(to: node, with: replacement, onParent: parent)
             }
             else
             {
@@ -462,9 +471,7 @@ struct UnsafeBalancedTree<Element>
             else
             {
                 // the replacement can never be the root, so it always has a parent
-                _replaceLink(   to: replacement,
-                                with: node,
-                                on_parent: replacement.parent!)
+                _replaceLink(to: replacement, with: node, onParent: replacement.parent!)
             }
 
             // swap all container information, taking care of outgoing links
@@ -484,14 +491,14 @@ struct UnsafeBalancedTree<Element>
         {
             assert(node.lchild == nil && node.rchild == nil)
             // a red node cannot be the root, so it must have a parent
-            _replaceLink(to: node, with: nil, on_parent: node.parent!)
+            _replaceLink(to: node, with: nil, onParent: node.parent!)
         }
         else if let child:Node = node.lchild ?? node.rchild,
                     child.color == .red
         {
             if let parent:Node = node.parent
             {
-                _replaceLink(to: node, with: child, on_parent: parent)
+                _replaceLink(to: node, with: child, onParent: parent)
             }
             else
             {
@@ -510,7 +517,7 @@ struct UnsafeBalancedTree<Element>
             // balanceDeletion(phantom:root:) function
             if let parent:Node = node.parent
             {
-                _replaceLink(to: node, with: nil, on_parent: parent)
+                _replaceLink(to: node, with: nil, onParent: parent)
             }
             else
             {
@@ -632,15 +639,15 @@ struct UnsafeBalancedTree<Element>
 
     // deinitializes and deallocates the node and all of its children
     private static
-    func deallocate(_ node:Node?)
+    func deallocateTree(_ node:Node?)
     {
         guard let node:Node = node
         else
         {
             return
         }
-        deallocate(node.lchild)
-        deallocate(node.rchild)
+        deallocateTree(node.lchild)
+        deallocateTree(node.rchild)
         node.deallocate()
     }
 
@@ -751,44 +758,37 @@ extension UnsafeBalancedTree where Element:Comparable
 
 
 // tests
-/*
 do
 {
-    var rbtree:UnsafeBalancedTree<Int> = UnsafeBalancedTree()
+    var rbtree = UnsafeBalancedTree<Int>()
 
-    var _nodes:[UnsafePointer<UnsafeBalancedTree<Int>.Node>] = []
-    for v in 0 ..< 12
+    @inline(__always)
+    func _printTree()
     {
-        _nodes.append(rbtree.insert(v))
-    }
-    //print(_nodes.map{"@\($0) : \($0.pointee)"}.joined(separator: "\n"))
-    print(rbtree.find(11)?.pointee ?? "not found")
-    // test the integrity of the tree by traversing it, doing it forwards and
-    // backwards traverses each link forwards and backwards at least once.
-    for node in _nodes.dropLast()
-    {
-        print(rbtree.verify())
-        rbtree.delete(UnsafeMutablePointer(mutating: node))
+        print("[", terminator: "")
+        for v:Int in rbtree
+        {
+            print(v, terminator: ", ")
+        }
+        print("]")
     }
 
-    print(rbtree.verify())
-    var iterator:UnsafePointer<UnsafeBalancedTree<Int>.Node>? = rbtree.first()
-    while let current:UnsafePointer<UnsafeBalancedTree<Int>.Node> = iterator
+    for v:Int in [1, 7, 5, 4, 9, 13, 8, 2, 6, 0]
     {
-        print(current.pointee.element)
-        iterator = UnsafeBalancedTree.successor(of: current)
+        rbtree.insort(v)
     }
 
-    iterator = rbtree.last()
-    while let current:UnsafePointer<UnsafeBalancedTree<Int>.Node> = iterator
-    {
-        print(current.pointee.element)
-        iterator = UnsafeBalancedTree.predecessor(of: current)
-    }
+    _printTree()
 
+    rbtree.remove(rbtree.binarySearch(4)!)
+    _printTree()
+
+    rbtree.insert(89, after: rbtree.binarySearch(8)!)
+    _printTree()
+
+    assert(rbtree.verify())
     rbtree.deallocate()
 }
-*/
 
 // random insertion stress test
 import func Glibc.clock
@@ -829,26 +829,16 @@ do
         assert(rbtree.verify())
         print(clock() - time1, terminator: " ")
 
-        /*
-        var iterator:UnsafePointer<UnsafeBalancedTree<UInt64>.Node>? = rbtree.first()
-        while let current:UnsafePointer<UnsafeBalancedTree<UInt64>.Node> = iterator
-        {
-            print(current.pointee.element, current.pointee.parent ?? "nil")
-            iterator = UnsafeBalancedTree.successor(of: current)
-        }
-        */
-
         state = 13
         for _ in 0 ..< n
         {
             state  = state &* 2862933555777941757 + 3037000493
             handle = rbtree.binarySearch(state >> 32)!
-            rbtree.delete(handle!)
+            rbtree.remove(handle!)
             assert(rbtree.verify())
         }
 
         assert(rbtree.verify())
-        //print("(@ \(handle)", terminator: " ")
         rbtree.deallocate()
 
         let time2:Int = clock()
