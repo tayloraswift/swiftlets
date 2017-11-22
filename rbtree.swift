@@ -23,6 +23,11 @@ struct UnsafeBalancedTree<Element>:Sequence
         private
         var core:UnsafeMutablePointer<NodeCore>
 
+        var address:UnsafeRawPointer
+        {
+            return UnsafeRawPointer(self.core)
+        }
+
         var element:Element
         {
             get
@@ -339,6 +344,7 @@ struct UnsafeBalancedTree<Element>:Sequence
         {
             predecessor.rchild = node
             node.parent        = predecessor
+            balanceInsertion(at: node, root: &root)
             return
         }
 
