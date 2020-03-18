@@ -1,160 +1,181 @@
-struct Heap<Element> where Element:Comparable
+enum Common   
 {
-    private
-    var elements:[Element] = [] // first index is always unused
-
-    private
-    subscript(index:Int) -> Element
+    struct Heap<Element> where Element:Comparable 
     {
-        get
+        private 
+        var storage:[Element]
+        
+        // support 1-based indexing
+        private
+        subscript(index:Int) -> Element
         {
-            return self.elements[index - 1]
+            get
+            {
+                self.storage[index - 1]
+            }
+            set(value)
+            {
+                self.storage[index - 1] = value
+            }
         }
-        set(v)
+
+        var count:Int
         {
-            self.elements[index - 1] = v
+            self.storage.count
+        }
+        var first:Element?
+        {
+            self.storage.first
+        }
+        var isEmpty:Bool 
+        {
+            self.storage.isEmpty 
+        }
+        
+        private 
+        var startIndex:Int 
+        {
+            1
+        }
+        private 
+        var endIndex:Int 
+        {
+            1 + self.count
         }
     }
+}
 
-    var count:Int
-    {
-        return self.elements.count
-    }
-
-    var first:Element?
-    {
-        return self.elements.first
-    }
-
+extension Common.Heap
+{
     @inline(__always)
-    private
-    func left_child(of index:Int) -> Int
+    private static 
+    func left(index:Int) -> Int
     {
         return index << 1
     }
-
     @inline(__always)
-    private
-    func right_child(of index:Int) -> Int
+    private static 
+    func right(index:Int) -> Int
     {
         return index << 1 + 1
     }
-
     @inline(__always)
-    private
-    func parent(of index:Int) -> Int
+    private static 
+    func parent(index:Int) -> Int
     {
         return index >> 1
     }
-
-    @inline(__always)
+    
     private
-    func highest_priority(under parent:Int) -> Int
+    func lowestPriority(above child:Int) -> Int?
     {
-        let r:Int = self.right_child(of: parent),
-            l:Int = self.left_child(of: parent)
-
-        guard l <= self.count
-        else
+        let p:Int = Self.parent(index: child)
+        // make sure it’s not the root
+        guard p >= self.startIndex 
+        else 
         {
-            return parent
+            return nil 
         }
-
-        guard r <= self.count
-        else
-        {
-            return self[parent] > self[l] ? parent : l
-        }
-
-        let lp_max:Int = self[parent] > self[l] ? parent : l
-        return self[lp_max] > self[r] ? lp_max : r
+                
+        // and the element is higher than the parent
+        return self[p] < self[child] ? p : nil
     }
-
-    @inline(__always)
-    private mutating
-    func swap_at(_ i:Int, _ j:Int)
+    private
+    func highestPriority(below parent:Int) -> Int?
     {
-        self.elements.swapAt(i - 1, j - 1)
-    }
+        let r:Int = Self.right(index: parent),
+            l:Int = Self.left (index: parent)
 
-    mutating
-    func enqueue(_ element:Element)
-    {
-        self.elements.append(element)
-        self.sift_up(element_at: self.count)
-    }
-
-    mutating
-    func sift_up(element_at index:Int)
-    {
-        let parent:Int = self.parent(of: index)
-        guard   index != 1,
-                // make sure it’s not the root
-                self[index] > self[parent]
-                // and the element is higher than the parent
-        else
-        {
-            return
-        }
-
-        self.swap_at(index, parent)
-        self.sift_up(element_at: parent)
-    }
-
-    mutating
-    func dequeue() -> Element?
-    {
-        guard self.count > 0
+        guard l < self.endIndex
         else
         {
             return nil
         }
 
-        let dequeued:Element
-        if self.count > 1
-        {
-            self.swap_at(1, self.count)
-            dequeued = self.elements.removeLast()
-            self.sift_down(element_at: 1)
-        }
+        guard r < self.endIndex
         else
         {
-            dequeued = self.elements.removeLast()
+            return self[parent] < self[l] ? l : nil 
         }
-
-        return dequeued
+        
+        let c:Int = self[l] < self[r] ? r : l
+        return self[parent] < self[c] ? c : nil 
     }
+    
 
-    mutating
-    func sift_down(element_at index:Int)
+    @inline(__always)
+    private mutating
+    func swapAt(_ i:Int, _ j:Int)
     {
-        let target:Int = highest_priority(under: index)
-        guard index != target
+        self.storage.swapAt(i - 1, j - 1)
+    }
+    private mutating
+    func siftUp(index:Int)
+    {
+        guard let parent:Int = self.lowestPriority(above: index)
         else
         {
             return
         }
-        self.swap_at(index, target)
-        self.sift_down(element_at: target)
+
+        self.swapAt(index, parent)
+        self.siftUp(index: parent)
+    }
+    private mutating
+    func siftDown(index:Int)
+    {
+        guard let child:Int = self.highestPriority(below: index)
+        else
+        {
+            return
+        }
+        
+        self.swapAt  (index, child)
+        self.siftDown(index: child)
     }
 
     mutating
-    func heapify()
+    func enqueue(_ element:Element)
     {
-        for index in (1 ... self.parent(of: self.count)).reversed()
+        self.storage.append(element)
+        self.siftUp(index: self.endIndex - 1)
+    }
+    
+    mutating
+    func dequeue() -> Element?
+    {
+        switch self.count 
         {
-            self.sift_down(element_at: index)
+        case 0:
+            return nil 
+        case 1:
+            return self.storage.removeLast()
+        default:
+            self.swapAt(self.startIndex, self.endIndex - 1)
+            defer 
+            {
+                self.siftDown(index: self.startIndex)
+            }
+            return self.storage.removeLast()
+        }
+    }
+    
+    init<S>(_ sequence:S) where S:Sequence, S.Element == Element 
+    {
+        self.storage = .init(sequence)
+        // heapify 
+        let perfect:ClosedRange<Int> = 
+            self.startIndex ... Self.parent(index: self.endIndex - 1)
+        for i:Int in perfect.reversed()
+        {
+            self.siftDown(index: i)
         }
     }
 }
-
-var heap:Heap = Heap<Int>()
-for v in [3, 2, 6, 9, 0, -1, 45, 0, 61, -55, 34, 35]
+extension Common.Heap:ExpressibleByArrayLiteral 
 {
-    heap.enqueue(v)
-}
-
-while let v:Int = heap.dequeue()
-{
-    print(v)
+    init(arrayLiteral:Element...) 
+    {
+        self.init(arrayLiteral)
+    }
 }
